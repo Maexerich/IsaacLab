@@ -49,12 +49,12 @@ def design_scene():
     cfg = sim_utils.GroundPlaneCfg()
     cfg.func("/World/defaultGroundPlane", cfg)
     # Lights
-    cfg = sim_utils.DomeLightCfg(intensity=2000.0, color=(0.8, 0.8, 0.8))
+    cfg = sim_utils.DomeLightCfg(intensity=4000.0, color=(0.8, 0.8, 0.8))
     cfg.func("/World/Light", cfg)
 
     # Create separate groups called "Origin1", "Origin2", "Origin3"
     # Each group will have a robot in it
-    origins = [[0.25, 0.25, 0.0], [-0.25, 0.25, 0.0], [0.25, -0.25, 0.0], [-0.25, -0.25, 0.0]]
+    origins = [[0.25, 0.25, 0.2], [-0.25, 0.25, 0.1], [0.25, -0.25, 0.0], [-0.25, -0.25, 0.0]]
     for i, origin in enumerate(origins):
         prim_utils.create_prim(f"/World/Origin{i}", "Xform", translation=origin)
 
@@ -102,6 +102,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, RigidObj
             root_state[:, :3] += math_utils.sample_cylinder(
                 radius=0.1, h_range=(0.25, 0.5), size=cone_object.num_instances, device=cone_object.device
             )
+            root_state[:, 6:10] = torch.tensor([0, 0, 0, 3.5])
             # write root state to simulation
             cone_object.write_root_state_to_sim(root_state)
             # reset buffers
