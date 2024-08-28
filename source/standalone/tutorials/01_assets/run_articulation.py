@@ -79,6 +79,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
     # note: we only do this here for readability. In general, it is better to access the entities directly from
     #   the dictionary. This dictionary is replaced by the InteractiveScene class in the next tutorial.
     robot = entities["cartpole"]
+    print(f"[M]: robot.joint_names: {robot.joint_names}")
     # Define simulation stepping
     sim_dt = sim.get_physics_dt()
     count = 0
@@ -115,6 +116,10 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         count += 1
         # Update buffers
         robot.update(sim_dt)
+
+        # Print robot state
+        if count % 50 == 0:
+            print(f"[Robot 01 state]: {robot.data.joint_pos[0]}, {robot.data.joint_vel[0]}")
 
 
 def main():

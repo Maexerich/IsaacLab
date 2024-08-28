@@ -102,6 +102,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, RigidObj
             root_state[:, :3] += math_utils.sample_cylinder(
                 radius=0.1, h_range=(0.25, 0.5), size=cone_object.num_instances, device=cone_object.device
             )
+            # MAX: Added velocity in z-direction
             root_state[:, 6:10] = torch.tensor([0, 0, 0, 3.5])
             # write root state to simulation
             cone_object.write_root_state_to_sim(root_state)
