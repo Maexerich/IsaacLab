@@ -13,6 +13,8 @@
 """
 
 """Launch Isaac Sim Simulator first."""
+
+
 import argparse
 
 from omni.isaac.lab.app import AppLauncher
@@ -58,6 +60,10 @@ def design_scene():
     )
     cfg_cone.func("/World/Objects/Cone1", cfg_cone, translation=(-1.0, 1.0, 1.0))
     cfg_cone.func("/World/Objects/Cone2", cfg_cone, translation=(-1.0, -1.0, 1.0))
+
+    # spawn my own urdf file
+    box_w_tail = sim_utils.UsdFileCfg(usd_path="C:/Users/Max/IsaacLab/source/temp/box_w_tail.usd")
+    box_w_tail.func("/World/Objects/BoxWithTail", box_w_tail, translation=(3, 3.0, 1.0))
 
     # spawn a green cone with colliders and rigid body
     cfg_cone_rigid = sim_utils.ConeCfg(
