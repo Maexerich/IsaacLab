@@ -28,7 +28,7 @@ import omni.isaac.core.utils.prims as prim_utils
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.assets import Articulation, ArticulationCfg, RigidObjectCfg, RigidObject
 from omni.isaac.lab.sim import SimulationContext
-from omni.isaac.lab.actuators import ImplicitActuatorCfg
+from omni.isaac.lab.actuators import ImplicitActuatorCfg, ActuatorBaseCfg
 
 ### CONFIGURATION ###
 # box_cfg = ArticulationCfg(
@@ -105,8 +105,8 @@ def design_scene() -> tuple[dict, list[list[float]]]:
 
     box_cfg = ArticulationCfg(
         prim_path="/World/Origin.*/Robot",
-        spawn=sim_utils.UrdfFileCfg(
-            usd_dir="source/temp/box_w_tail.usd",
+        spawn=sim_utils.UsdFileCfg(
+            usd_path="source/temp/box_w_tail.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 rigid_body_enabled=True,
                 max_linear_velocity=1000.0,
@@ -123,7 +123,7 @@ def design_scene() -> tuple[dict, list[list[float]]]:
             pos=(0, 0, 0.5), joint_pos={"box_to_rod": -1.5708}
         ),
         actuators={
-            "rod_motor": ImplicitActuatorCfg(
+            "rod_motor": ActuatorBaseCfg(
                 joint_names_expr=["box_to_rod"],
                 effort_limit=400.0,
                 velocity_limit=100.0,
@@ -133,14 +133,6 @@ def design_scene() -> tuple[dict, list[list[float]]]:
             },
     )
 
-
-    b = sim_utils.UrdfFileCfg(asset_path="source/temp/box_w_tail.usd")
-    print(b.joint_drive_props)
-
-
-
-
-    # box_cfg.prim_path = "/World/Origin.*/Robot"
     box = Articulation(cfg=box_cfg)
 
 
@@ -210,7 +202,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         
         # Apply torque to the 'box_to_rod' joint
         num_entities = robot.num_instances
-        torque = torch.tensor([10.0] * num_entities)  # Torque value in Nm
+        torque = torch.full((num_entities, 1), 10.0).to('cuda')  # Torque value in Nm
         joint_index, joint_names = robot.find_joints(name_keys="box_to_rod")
         robot.set_joint_effort_target(target=torque, 
                                       joint_ids=joint_index, 
