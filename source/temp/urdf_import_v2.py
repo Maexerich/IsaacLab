@@ -92,8 +92,9 @@ def design_scene() -> tuple[dict, list[list[float]]]:
     light_cfg.func("/World/Light", light_cfg)
 
     # Multiple origins
-    origins = [[0.0, 0.0, 0.0], [1, 0, 0], [2, 0, 0], 
-               [0, 1, 0], [1, 1, 0], [2, 1, 0]]
+    z = 0.2
+    origins = [[0, 0, z], [2, 0, z], [4, 0, z], 
+               [0, 2, z], [2, 2, z], [4, 2, z]]
     for i, origin in enumerate(origins):
         prim_utils.create_prim(f"/World/Origin{i+1}", "Xform", translation=origin)
 
@@ -109,9 +110,9 @@ def design_scene() -> tuple[dict, list[list[float]]]:
             usd_path="source/temp/box_w_tail.usd",
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 rigid_body_enabled=True,
-                max_linear_velocity=1000.0,
-                max_angular_velocity=1000.0,
-                max_depenetration_velocity=100.0,
+                # max_linear_velocity=1000.0,
+                # max_angular_velocity=1000.0,
+                # max_depenetration_velocity=100.0,
                 enable_gyroscopic_forces=True
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
@@ -120,37 +121,46 @@ def design_scene() -> tuple[dict, list[list[float]]]:
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0, 0, 0.5), joint_pos={"box_to_rod": -1.5708}
+            pos=(0, 0, 0.5), 
+            joint_pos={"box_to_rod": -1.5708}, 
+            # joint_vel={"box_to_rod": 10.0}
         ),
         actuators={
-            "rod_motor": ActuatorBaseCfg(
+            # "rod_motor": ActuatorBaseCfg(
+            #     joint_names_expr=["box_to_rod"],
+            #     effort_limit=400.0,
+            #     velocity_limit=100.0,
+            #     stiffness=0.0,
+            #     damping=10.0,
+            #     ),
+            "rod_motor" : ImplicitActuatorCfg(
                 joint_names_expr=["box_to_rod"],
-                effort_limit=400.0,
-                velocity_limit=100.0,
-                stiffness=0.0,
                 damping=10.0,
-                ),
+                effort_limit=400.0,
+                stiffness=0.0,
+                velocity_limit=100.0
+            )
             },
+            
     )
 
     box = Articulation(cfg=box_cfg)
 
-
     ### THIS WORKS ###
-    cone_cfg = RigidObjectCfg(
-        spawn=sim_utils.ConeCfg(
-            radius=0.1, height=0.5,
-            rigid_props=sim_utils.RigidBodyPropertiesCfg(
-                rigid_body_enabled=True,
-                max_linear_velocity=1000.0,
-                max_angular_velocity=1000.0,
-                max_depenetration_velocity=100.0,
-                enable_gyroscopic_forces=True
-            ),
-        ),
-        init_state=RigidObjectCfg.InitialStateCfg(),
-    )
-    cone_cfg.prim_path = "/World/Origin.*/Robot"
+    # cone_cfg = RigidObjectCfg(
+    #     spawn=sim_utils.ConeCfg(
+    #         radius=0.1, height=0.5,
+    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
+    #             rigid_body_enabled=True,
+    #             max_linear_velocity=1000.0,
+    #             max_angular_velocity=1000.0,
+    #             max_depenetration_velocity=100.0,
+    #             enable_gyroscopic_forces=True
+    #         ),
+    #     ),
+    #     init_state=RigidObjectCfg.InitialStateCfg(),
+    # )
+    # cone_cfg.prim_path = "/World/Origin.*/Robot"
     # box = RigidObject(cfg=cone_cfg)
     #########################
 
@@ -190,10 +200,17 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
             robot.write_root_state_to_sim(root_state)
 
             joint_pos = robot.data.default_joint_pos.clone()
-            print(f"Joint_pos: shape: {joint_pos.shape}, \n     data: \{joint_pos}")
             joint_pos += torch.rand_like(joint_pos) * 0.1
+
+            joint_vel = robot.data.default_joint_vel.clone()
+            # joint_vel += torch.rand_like(joint_vel) * 0.4
+            
+            print(f"-- INITIALIZATION --")
+            print(f"Joint_pos:\n    {joint_pos}")
+            print(f"Joint_vel:\n    {joint_vel}")
+
             robot.write_joint_state_to_sim(position=joint_pos, 
-                                           velocity=torch.zeros_like(joint_pos),
+                                           velocity=joint_vel,
                                            env_ids=None)
 
             # clear internal buffers
@@ -202,12 +219,31 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         
         # Apply torque to the 'box_to_rod' joint
         num_entities = robot.num_instances
-        torque = torch.full((num_entities, 1), 10.0).to('cuda')  # Torque value in Nm
-        joint_index, joint_names = robot.find_joints(name_keys="box_to_rod")
-        robot.set_joint_effort_target(target=torque, 
-                                      joint_ids=joint_index, 
-                                      env_ids=None)
+        # torque = torch.full((num_entities, 1), 200.0).to('cuda')  # Torque value in Nm
+        # joint_index, joint_names = robot.find_joints(name_keys="box_to_rod")
+        # robot.set_joint_effort_target(target=torque, 
+        #                               joint_ids=joint_index, 
+        #                               env_ids=None)
+        # robot.write_data_to_sim()
+
+        joints = robot.find_joints(["box_to_rod"], preserve_order=True)
+        print(joints)
+
+        # print(f"Robot actuators: {robot.actuators}")
+        # print(f"Joint Names: {robot.joint_names}")
+
+        # Apply an effort
+        base_effort = 100 * ((500-count)/500)
+        efforts = torch.full(robot.data.joint_pos.shape, base_effort)
+        # print(f"Efforts: {efforts}")
+        # efforts = base_effort + torch.rand_like(robot.data.joint_pos) * (0.1 * base_effort)
+        robot.set_joint_effort_target(efforts)
+
         robot.write_data_to_sim()
+
+        if count % 50 == 0:
+            print(f"Current effort at {base_effort} with count = {count}")
+            print(f"Robot joint efforts: {robot._joint_effort_target_sim}")
 
         sim.step() 
         count += 1
