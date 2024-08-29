@@ -80,7 +80,7 @@
     <!-- <limit lower="-1.57" upper="1.57" effort="10.0" velocity="1.0"/> -->
   </joint>
 
-  <!-- Actuator (if needed) -->
+  <!-- Actuator (if needed)
   <transmission type="SimpleTransmission" name="rod_trans">
     <actuator name="rod_motor"/>
     <joint name="box_to_rod"/>
@@ -97,6 +97,6 @@
         <d>10.0</d>
       </pid>
     </plugin>
-  </gazebo>
+  </gazebo> -->
 
 </robot>

@@ -103,6 +103,9 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
             # clear internal buffers
             robot.reset()
             print("[INFO]: Resetting robot state...")
+
+        print(f"Robot actuators: {robot.actuators}")
+        print(f"Joint Names: {robot.joint_names}")
         # Apply random action
         # -- generate random joint efforts
         efforts = torch.randn_like(robot.data.joint_pos) * 5.0
