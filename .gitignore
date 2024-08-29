@@ -57,3 +57,7 @@ _build
 **/runs/*
 **/logs/*
 **/recordings/*
+
+# Virtual Environment
+.venv/
+venv/
