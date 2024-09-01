@@ -30,53 +30,28 @@ from omni.isaac.lab.assets import Articulation, ArticulationCfg, RigidObjectCfg,
 from omni.isaac.lab.sim import SimulationContext
 from omni.isaac.lab.actuators import ImplicitActuatorCfg, ActuatorBaseCfg
 
-### CONFIGURATION ###
-# box_cfg = ArticulationCfg(
-#     prim_path="/World/Origin.*/Robot",
-#     spawn=sim_utils.UrdfFileCfg(
-#         usd_dir="source/temp/box_w_tail.usd",
-#         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-#             rigid_body_enabled=True,
-#             max_linear_velocity=1000.0,
-#             max_angular_velocity=1000.0,
-#             max_depenetration_velocity=100.0,
-#             enable_gyroscopic_forces=True
-#         ),
-#         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-#             articulation_enabled=True,
-#             enabled_self_collisions=True,
-#         ),
-#     ),
-#     init_state=ArticulationCfg.InitialStateCfg(
-#         pos=(0, 0, 0.5), joint_pos={"box_to_rod": -1.5708}
-#     ),
-#     actuators={
-#         "rod_motor": ImplicitActuatorCfg(
-#             joint_names_expr=["box_to_rod"],
-#             effort_limit=400.0,
-#             velocity_limit=100.0,
-#             stiffness=0.0,
-#             damping=10.0,
-#         ),
-#     }
-# )
-# box_cfg = RigidObjectCfg(
-#     prim_path="/World/Origin.*/Robot",
-#     spawn=sim_utils.UrdfFileCfg(
-#         usd_dir="source/temp/box_w_tail.usd",
-#         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-#             rigid_body_enabled=True,
-#             max_linear_velocity=1000.0,
-#             max_angular_velocity=1000.0,
-#             max_depenetration_velocity=100.0,
-#             enable_gyroscopic_forces=True
-#         ),
-#     ),
-#     init_state=RigidObjectCfg.InitialStateCfg(
-#         pos=(0, 0, 0.5), joint_pos={"box_to_rod": -1.5708}
-#     ),
-#     )
-# )
+### Ang Acceleration Profile ###
+import numpy as np
+class SimpleAngAccelProfile:
+    def __init__(self, sim_dt: float, acceleration: float = 200.0, acceleration_dt: float = 0.3, 
+                 start_acceleration_time: float = 0.0, stop_time: float = 0.8):
+        self.sim_dt = sim_dt
+        self.acceleration = acceleration
+        self.acceleration_dt = acceleration_dt
+        self.start_acceleration_time = start_acceleration_time
+        self.stop_time = stop_time
+
+
+    def get_ang_vel(self, dt: int) -> float:
+        "Returns angular velocity in rad/s at simulation setp dt (aka 'count')."
+        if dt*self.sim_dt < self.start_acceleration_time:
+            return 0.0
+        elif dt*self.sim_dt < self.acceleration_dt:
+            return self.acceleration * dt * self.sim_dt
+        elif dt*self.sim_dt < self.stop_time:
+            return self.acceleration * self.acceleration_dt
+        else:
+            return 0.0
 
 
 ### FUNCTIONS ###
@@ -98,12 +73,6 @@ def design_scene() -> tuple[dict, list[list[float]]]:
     for i, origin in enumerate(origins):
         prim_utils.create_prim(f"/World/Origin{i+1}", "Xform", translation=origin)
 
-    print(prim_utils.find_matching_prim_paths("/World/Origin.*"))
-    
-    # box_cfg.prim_path = "/World/Origin.*/Robot"
-    # print(f"[M] box_cfg.prim_path: {box_cfg.prim_path}")
-    # box = Articulation(cfg=box_cfg)
-
     box_cfg = ArticulationCfg(
         prim_path="/World/Origin.*/Robot",
         spawn=sim_utils.UsdFileCfg(
@@ -113,17 +82,19 @@ def design_scene() -> tuple[dict, list[list[float]]]:
                 # max_linear_velocity=1000.0,
                 # max_angular_velocity=1000.0,
                 # max_depenetration_velocity=100.0,
-                enable_gyroscopic_forces=True
+                enable_gyroscopic_forces=True,
+                # kinematic_enabled=True
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=True,
                 enabled_self_collisions=True,
+                fix_root_link=True
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
             pos=(0, 0, 0.5), 
-            # joint_pos={"box_to_rod": -1.5708}, 
-            joint_pos={"box_to_rod": -0.3},
+            joint_pos={"box_to_rod": -1.5708}, 
+            # joint_pos={"box_to_rod": -0.3},
             # joint_vel={"box_to_rod": 10.0}
         ),
         actuators={
@@ -147,36 +118,6 @@ def design_scene() -> tuple[dict, list[list[float]]]:
 
     box = Articulation(cfg=box_cfg)
 
-    ### THIS WORKS ###
-    # cone_cfg = RigidObjectCfg(
-    #     spawn=sim_utils.ConeCfg(
-    #         radius=0.1, height=0.5,
-    #         rigid_props=sim_utils.RigidBodyPropertiesCfg(
-    #             rigid_body_enabled=True,
-    #             max_linear_velocity=1000.0,
-    #             max_angular_velocity=1000.0,
-    #             max_depenetration_velocity=100.0,
-    #             enable_gyroscopic_forces=True
-    #         ),
-    #     ),
-    #     init_state=RigidObjectCfg.InitialStateCfg(),
-    # )
-    # cone_cfg.prim_path = "/World/Origin.*/Robot"
-    # box = RigidObject(cfg=cone_cfg)
-    #########################
-
-
-
-    # print(f"[M] box_cfg.prim_path: {box_cfg.prim_path}")
-    # print(f"[M] box_cfg.actuators: {box_cfg.actuators}")
-    # box = Articulation(cfg=box_cfg)
-
-    # try:
-    #     box = Articulation(cfg=box_cfg)
-    # except Exception as e:
-    #     print(f"[E] Error creating Articulation: {e}")
-    #     raise
-
     # return the scene information
     scene_entities = {"box": box}
     return scene_entities, origins
@@ -189,11 +130,15 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
     # Sim step
     sim_dt = sim.get_physics_dt()
     count = 0
+    reset_count = 800
+
+    # Create ang-vel profile
+    ang_vel_profile = SimpleAngAccelProfile(sim_dt)
 
     # Loop
     while simulation_app.is_running():
         # Reset
-        if count % 500 == 0:
+        if count % reset_count == 0:
             count = 0
 
             root_state = robot.data.default_root_state.clone()
@@ -218,14 +163,6 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
             robot.reset()
             print("[INFO]: Resetting robot state...")
         
-        # Apply torque to the 'box_to_rod' joint
-        num_entities = robot.num_instances
-        # torque = torch.full((num_entities, 1), 200.0).to('cuda')  # Torque value in Nm
-        # joint_index, joint_names = robot.find_joints(name_keys="box_to_rod")
-        # robot.set_joint_effort_target(target=torque, 
-        #                               joint_ids=joint_index, 
-        #                               env_ids=None)
-        # robot.write_data_to_sim()
 
         joints = robot.find_joints(["box_to_rod"], preserve_order=True)
         # print(joints)
@@ -233,17 +170,23 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         # print(f"Robot actuators: {robot.actuators}")
         # print(f"Joint Names: {robot.joint_names}")
 
-        # Apply an effort
-        base_effort = 100 * ((500-count)/500)
-        efforts = torch.full(robot.data.joint_pos.shape, base_effort)
-        # efforts = efforts.to('cpu')
-        robot.set_joint_effort_target(efforts)
+        # # Apply an effort
+        # base_effort = 100 * ((500-count)/500)
+        # efforts = torch.full(robot.data.joint_pos.shape, base_effort)
+        # # efforts = efforts.to('cpu')
+        # robot.set_joint_effort_target(efforts)
+
+        # Follow ang-vel profile
+        ang_vel = ang_vel_profile.get_ang_vel(dt=count)
+        joint_vel = torch.full_like(robot.actuators['rod_motor'].applied_effort, ang_vel)
+        robot.set_joint_velocity_target(joint_vel)
 
         robot.write_data_to_sim()
 
         if count % 50 == 0:
-            print(f"Current effort at {base_effort} with count = {count}")
-            print(f"Robot joint efforts: {robot._joint_effort_target_sim}")
+            # print(f"Current effort at {base_effort} with count = {count}")
+            # print(f"Robot joint efforts: {robot._joint_effort_target_sim}")
+            print(f"Current ang-vel at {ang_vel} with count = {count}")
 
         sim.step() 
         count += 1
