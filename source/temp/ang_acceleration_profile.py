@@ -40,7 +40,7 @@ class SimpleAngAccelProfile:
                  a: float = 200.0, 
                  t0: float = 0.0,
                  t0_t1: float = 0.5,
-                 t1_t2: float = 0.2):
+                 t1_t2: float = 5.2):
         """Simple angular acceleration profile defined as follows;
         alpha(t) = a*(t-t0), for t0 < t < t1
         alpha(t) = a*(t1-t0), for t1 < t < t2
@@ -215,8 +215,8 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         else:
             # TODO: How can I have tail swing freely?
             robot.set_joint_velocity_target(torch.zeros_like(robot.actuators['rod_motor'].applied_effort))
-            print(f"[EXIT]")
-            return
+            # print(f"[EXIT]")
+            # return
         
         print(f"[C: {count}]: Ang-vel setpoint: {ang_vel}, Target_joint_vel: {robot._joint_vel_target_sim[0]}")
 
@@ -232,6 +232,9 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         velocities = articulation_view.get_velocities()
         world_poses = articulation_view.get_world_poses()
         world_scales = articulation_view.get_world_scales()
+        joint_pos = articulation_view.get_joint_positions()
+        joint_vel = articulation_view.get_joint_velocities()
+        joint_state = articulation_view.get_joints_state()
         # TODO: I observed, that world poses still does not consider rotation of the tail.
         #      Using GUI; can I see the tail's frame of reference rotating???
         
