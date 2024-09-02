@@ -38,7 +38,7 @@ class SimpleAngAccelProfile:
     def __init__(self, 
                  sim_dt: float, 
                  a: float = 200.0, 
-                 t0: float = 1.5,
+                 t0: float = 0.0,
                  t0_t1: float = 0.5,
                  t1_t2: float = 0.2):
         """Simple angular acceleration profile defined as follows;
@@ -215,12 +215,34 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         else:
             # TODO: How can I have tail swing freely?
             robot.set_joint_velocity_target(torch.zeros_like(robot.actuators['rod_motor'].applied_effort))
+            print(f"[EXIT]")
+            return
         
         print(f"[C: {count}]: Ang-vel setpoint: {ang_vel}, Target_joint_vel: {robot._joint_vel_target_sim[0]}")
 
         robot.write_data_to_sim()        
 
-        measured_joint_efforts = articulation_view.get_measured_joint_efforts()
+        # Get values from sim
+        ang_vel_sim = articulation_view.get_angular_velocities() # TODO: Why does this not provide ang-vel of tail frame of reference?
+        applied_joint_efforts = articulation_view.get_applied_joint_efforts()
+        applied_actions = articulation_view.get_applied_actions()
+        joint_velocities = articulation_view.get_joint_velocities() # This seems to work too
+        measured_joint_efforts = articulation_view.get_measured_joint_efforts() # This provides a sensible value
+        local_poses = articulation_view.get_local_poses()
+        velocities = articulation_view.get_velocities()
+        world_poses = articulation_view.get_world_poses()
+        world_scales = articulation_view.get_world_scales()
+        # TODO: I observed, that world poses still does not consider rotation of the tail.
+        #      Using GUI; can I see the tail's frame of reference rotating???
+        
+        
+        print(f"""    Ang-vel-sim: {ang_vel_sim[0]}, Applied joint efforts: {applied_joint_efforts[0]}, 
+              Applied actions: {applied_actions.joint_positions[0]}, Joint velocities: {joint_velocities[0]}, 
+              Measured joint efforts: {measured_joint_efforts[0]}, \n
+              world_poses: \n
+                {world_poses}
+              world_scales: \n
+                {world_scales}\n""")
 
         # if count % 5 == 0:
         #     print(f"[C: {count}]: Ang-vel: {ang_vel}, Effort: {measured_joint_efforts[0].float()}")
