@@ -39,8 +39,8 @@ class SimpleAngAccelProfile:
                  sim_dt: float, 
                  a: float = 200.0, 
                  t0: float = 0.0,
-                 t0_t1: float = 0.5,
-                 t1_t2: float = 5.2):
+                 t0_t1: float = 0.4,
+                 t1_t2: float = 0.2):
         """Simple angular acceleration profile defined as follows;
         alpha(t) = a*(t-t0), for t0 < t < t1
         alpha(t) = a*(t1-t0), for t1 < t < t2
@@ -75,6 +75,7 @@ class SimpleAngAccelProfile:
             return None
 
 ### CFG ###
+DAMPING = 10.0
 BOX_CFG = ArticulationCfg(
     prim_path="/World/Origin.*/Robot",
     spawn=sim_utils.UsdFileCfg(
@@ -110,10 +111,10 @@ BOX_CFG = ArticulationCfg(
         #     ),
         "rod_motor" : ImplicitActuatorCfg(
             joint_names_expr=["box_to_rod"],
-            friction=1.0,
-            damping=10.0,
+            friction=0.5,
+            damping=DAMPING,
             effort_limit=1000.0,
-            stiffness=0.0,
+            stiffness=0.0, # Leave at zero! (velcity and effort control!)
             velocity_limit=500.0
         ),
         },  
@@ -153,8 +154,10 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
     # Initialize ArticulationData using physx.ArticulationView
     articulation_view = ArticulationView(prim_paths_expr="/World/Origin.*/Robot")
     articulation_view.initialize()
+    # articulation_view.enable_dof_force_sensors = True
+    
 
-    # d = ArticulationData(robot.root_physx_view(), sim.device)
+    ArtData = ArticulationData(articulation_view, 'cuda')
 
     # Sim step
     sim_dt = sim.get_physics_dt()
@@ -174,18 +177,18 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
             root_state[:, :3] += origins
             robot.write_root_state_to_sim(root_state)
 
-            joint_pos = robot.data.default_joint_pos.clone()
-            joint_pos += torch.rand_like(joint_pos) * 0.1
+            joint_pos_default = robot.data.default_joint_pos.clone()
+            joint_pos_default += torch.rand_like(joint_pos_default) * 0.1
 
-            joint_vel = robot.data.default_joint_vel.clone()
+            joint_vel_default = robot.data.default_joint_vel.clone()
             # joint_vel += torch.rand_like(joint_vel) * 0.4
             
             print(f"-- INITIALIZATION --")
-            print(f"Joint_pos:\n    {joint_pos}")
-            print(f"Joint_vel:\n    {joint_vel}")
+            print(f"Joint_pos:\n    {joint_pos_default}")
+            print(f"Joint_vel:\n    {joint_vel_default}")
 
-            robot.write_joint_state_to_sim(position=joint_pos, 
-                                           velocity=joint_vel,
+            robot.write_joint_state_to_sim(position=joint_pos_default, 
+                                           velocity=joint_vel_default,
                                            env_ids=None)
 
             # clear internal buffers
@@ -210,15 +213,30 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         # print(f"[C: {count}]: Ang-vel: {ang_vel}")
         
         if ang_vel is not None:
-            joint_vel = torch.full_like(robot.actuators['rod_motor'].applied_effort, ang_vel)
-            robot.set_joint_velocity_target(joint_vel)
+            # For velocity control; stiffness must be 0.0, damping must be non-zero
+            # (source: omni.isaac.core Articulations Documentation)
+            articulation_view.switch_control_mode(mode='velocity')
+            robot.write_joint_damping_to_sim(torch.full_like(robot.actuators['rod_motor'].damping, DAMPING))
+
+            joint_vel_setpoint = torch.full_like(robot.actuators['rod_motor'].applied_effort, ang_vel)
+            robot.set_joint_velocity_target(joint_vel_setpoint)
         else:
             # TODO: How can I have tail swing freely?
-            robot.set_joint_velocity_target(torch.zeros_like(robot.actuators['rod_motor'].applied_effort))
+
+            # For effort control; stiffness and damping must be 0.0
+            articulation_view.switch_control_mode(mode='effort')
+            robot.write_joint_damping_to_sim(torch.zeros_like(robot.actuators['rod_motor'].damping))
+
+            # Set zero effort (should let tail swing freely???)
+            robot.set_joint_effort_target(torch.zeros_like(robot.actuators['rod_motor'].applied_effort))
+            
             # print(f"[EXIT]")
             # return
+            
         
-        print(f"[C: {count}]: Ang-vel setpoint: {ang_vel}, Target_joint_vel: {robot._joint_vel_target_sim[0]}")
+        print(f"""[C: {count}]: Ang-vel setpoint: {ang_vel}\n 
+              measured_joint_efforts: {articulation_view.get_measured_joint_efforts()[0]} \n
+              joint_effort_target: {robot._joint_effort_target_sim[0]}""")
 
         robot.write_data_to_sim()        
 
@@ -236,16 +254,20 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         joint_vel = articulation_view.get_joint_velocities()
         joint_state = articulation_view.get_joints_state()
         # TODO: I observed, that world poses still does not consider rotation of the tail.
-        #      Using GUI; can I see the tail's frame of reference rotating???
+        #      Using GUI; can I see the tail's frame of reference rotating??? --> No, it does not rotate.
+        
+        body_names = articulation_view.body_names
+        print(f"Body names: {body_names}")
+        return
         
         
-        print(f"""    Ang-vel-sim: {ang_vel_sim[0]}, Applied joint efforts: {applied_joint_efforts[0]}, 
-              Applied actions: {applied_actions.joint_positions[0]}, Joint velocities: {joint_velocities[0]}, 
-              Measured joint efforts: {measured_joint_efforts[0]}, \n
-              world_poses: \n
-                {world_poses}
-              world_scales: \n
-                {world_scales}\n""")
+        # print(f"""    Ang-vel-sim: {ang_vel_sim[0]}, Applied joint efforts: {applied_joint_efforts[0]}, 
+        #       Applied actions: {applied_actions.joint_positions[0]}, Joint velocities: {joint_velocities[0]}, 
+        #       Measured joint efforts: {measured_joint_efforts[0]}, \n
+        #       world_poses: \n
+        #         {world_poses}
+        #       world_scales: \n
+        #         {world_scales}\n""")
 
         # if count % 5 == 0:
         #     print(f"[C: {count}]: Ang-vel: {ang_vel}, Effort: {measured_joint_efforts[0].float()}")
