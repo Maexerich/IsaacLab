@@ -30,6 +30,7 @@ import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.assets import Articulation, ArticulationCfg, ArticulationData, RigidObjectCfg, RigidObject
 from omni.isaac.lab.sim import SimulationContext
 from omni.isaac.lab.actuators import ImplicitActuatorCfg, ActuatorBaseCfg
+from omni.isaac.lab.sensors import FrameTransformer, FrameTransformerCfg, OffsetCfg
 import omni.physx as physx
 
 ### Ang Acceleration Profile ###
@@ -120,7 +121,6 @@ BOX_CFG = ArticulationCfg(
         },  
 )
 
-
 ### FUNCTIONS ###
 def design_scene() -> tuple[dict, list[list[float]]]:
     "Designs the scene."
@@ -146,7 +146,6 @@ def design_scene() -> tuple[dict, list[list[float]]]:
     scene_entities = {"box": box}
     return scene_entities, origins
 
-
 def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articulation], origins: torch.Tensor):
     "Runs the simulator."
     robot = entities["box"]
@@ -156,8 +155,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
     articulation_view.initialize()
     # articulation_view.enable_dof_force_sensors = True
     
-
-    ArtData = ArticulationData(articulation_view, 'cuda')
+    ArtData : ArticulationData = robot.data
 
     # Sim step
     sim_dt = sim.get_physics_dt()
@@ -221,7 +219,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
             joint_vel_setpoint = torch.full_like(robot.actuators['rod_motor'].applied_effort, ang_vel)
             robot.set_joint_velocity_target(joint_vel_setpoint)
         else:
-            # TODO: How can I have tail swing freely?
+            # DONE: How can I have tail swing freely?
 
             # For effort control; stiffness and damping must be 0.0
             articulation_view.switch_control_mode(mode='effort')
@@ -236,7 +234,22 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         
         print(f"""[C: {count}]: Ang-vel setpoint: {ang_vel}\n 
               measured_joint_efforts: {articulation_view.get_measured_joint_efforts()[0]} \n
-              joint_effort_target: {robot._joint_effort_target_sim[0]}""")
+              joint_effort_target: {robot._joint_effort_target_sim[0]} \n
+              damping: {ArtData.joint_damping[0]} \n""")
+        
+        if count == 5 or count == 20:
+            applied_torque = ArtData.applied_torque
+            body_acc_w = ArtData.body_acc_w
+            root_state = ArtData.root_state_w
+
+            print(f"\n[{count}]: Applied Torque: {applied_torque}\n")
+            print(f"Body Acc: {body_acc_w}\n")
+            print(f"Root State: {root_state}\n")
+
+            if count == 20:
+                print(f"Early stop")
+                return
+
 
         robot.write_data_to_sim()        
 
@@ -258,7 +271,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         
         body_names = articulation_view.body_names
         print(f"Body names: {body_names}")
-        return
+        # return
         
         
         # print(f"""    Ang-vel-sim: {ang_vel_sim[0]}, Applied joint efforts: {applied_joint_efforts[0]}, 
