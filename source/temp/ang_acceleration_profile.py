@@ -1,4 +1,5 @@
 import argparse
+import pandas as pd
 
 from copy import deepcopy
 
@@ -32,6 +33,41 @@ from omni.isaac.lab.sim import SimulationContext
 from omni.isaac.lab.actuators import ImplicitActuatorCfg, ActuatorBaseCfg
 from omni.isaac.lab.sensors import FrameTransformer, FrameTransformerCfg, OffsetCfg
 import omni.physx as physx
+
+### Store values ###
+class DataStorage:
+    """This class handles the temporary and local storage of values from the simulation.
+    Values are stored as dictionaries at runtime, transformed into a pd.DataFrame at the end
+    of simulation and stored locally as a .csv file.
+    
+    Attributes:
+    - data: Dictionary of dictionaries to store values. First key is time-step in seconds, 
+            the second key is the name of the value."""
+    def __init__(self, record: bool = True):
+        self.data = {}
+        self.df = None
+
+        self._record = record
+
+    @property
+    def get_data(self):
+        if self.df is None:
+            print("Data has not been transformed to a DataFrame yet. \nCall the save method first.")
+        return self.df
+
+    @property
+    def record_bool(self):
+        return self._record
+    
+    def store(self, time_seconds: float, values: dict):
+        "Stores values in the data attribute."
+        self.data[time_seconds] = values
+    
+    def save(self, path: str):
+        "Saves the data attribute as a .csv file at the given path."
+        import pandas as pd
+        self.df = pd.DataFrame.from_dict(self.data, orient='index')
+        self.df.to_csv(path, index_label='time_seconds')
 
 ### Ang Acceleration Profile ###
 import numpy as np
@@ -113,6 +149,7 @@ BOX_CFG = ArticulationCfg(
         "rod_motor" : ImplicitActuatorCfg(
             joint_names_expr=["box_to_rod"],
             friction=0.5,
+            # friction=0.0,
             damping=DAMPING,
             effort_limit=1000.0,
             stiffness=0.0, # Leave at zero! (velcity and effort control!)
@@ -160,7 +197,9 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
     # Sim step
     sim_dt = sim.get_physics_dt()
     count = 0
-    reset_count = 800
+    reset_count = 250
+
+    data_recorder = DataStorage(record=True)
 
     # Create ang-vel profile
     ang_vel_profile = SimpleAngAccelProfile(sim_dt)
@@ -169,6 +208,11 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
     while simulation_app.is_running():
         # Reset
         if count % reset_count == 0:
+            # If recording, then only perform one simulation loop
+            if count == reset_count and data_recorder.record_bool == True:
+                data_recorder.save(("source/temp/trial_data_with_Friction_leavingVelSetpoint.csv"))
+                return
+            
             count = 0
 
             root_state = robot.data.default_root_state.clone()
@@ -200,56 +244,43 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         # print(f"Robot actuators: {robot.actuators}")
         # print(f"Joint Names: {robot.joint_names}")
 
-        # # Apply an effort
-        # base_effort = 100 * ((500-count)/500)
-        # efforts = torch.full(robot.data.joint_pos.shape, base_effort)
-        # # efforts = efforts.to('cpu')
-        # robot.set_joint_effort_target(efforts)
-
         # Follow ang-vel profile
         ang_vel = ang_vel_profile.get_ang_vel(count=count)
         # print(f"[C: {count}]: Ang-vel: {ang_vel}")
         
         if ang_vel is not None:
+            ### Following Ang-Vel profile ###
             # For velocity control; stiffness must be 0.0, damping must be non-zero
             # (source: omni.isaac.core Articulations Documentation)
             articulation_view.switch_control_mode(mode='velocity')
             robot.write_joint_damping_to_sim(torch.full_like(robot.actuators['rod_motor'].damping, DAMPING))
-
+            # Set joint velocity setpoint
             joint_vel_setpoint = torch.full_like(robot.actuators['rod_motor'].applied_effort, ang_vel)
             robot.set_joint_velocity_target(joint_vel_setpoint)
         else:
-            # DONE: How can I have tail swing freely?
-
+            ### Free swing of the tail ###
             # For effort control; stiffness and damping must be 0.0
+            # robot.set_joint_velocity_target(torch.zeros_like(robot.actuators['rod_motor'].applied_effort))
             articulation_view.switch_control_mode(mode='effort')
             robot.write_joint_damping_to_sim(torch.zeros_like(robot.actuators['rod_motor'].damping))
-
             # Set zero effort (should let tail swing freely???)
             robot.set_joint_effort_target(torch.zeros_like(robot.actuators['rod_motor'].applied_effort))
-            
-            # print(f"[EXIT]")
-            # return
+
             
         
-        print(f"""[C: {count}]: Ang-vel setpoint: {ang_vel}\n 
-              measured_joint_efforts: {articulation_view.get_measured_joint_efforts()[0]} \n
-              joint_effort_target: {robot._joint_effort_target_sim[0]} \n
-              damping: {ArtData.joint_damping[0]} \n""")
+        # print(f"""[C: {count}]: Ang-vel setpoint: {ang_vel}\n 
+        #       measured_joint_efforts: {articulation_view.get_measured_joint_efforts()[0]} \n
+        #       joint_effort_target: {robot._joint_effort_target_sim[0]} \n
+        #       damping: {ArtData.joint_damping[0]} \n""")
         
-        if count == 5 or count == 20:
-            applied_torque = ArtData.applied_torque
-            body_acc_w = ArtData.body_acc_w
-            root_state = ArtData.root_state_w
+        # if count == 5 or count == 20:
+        #     applied_torque = ArtData.applied_torque
+        #     body_acc_w = ArtData.body_acc_w
+        #     root_state = ArtData.root_state_w
 
-            print(f"\n[{count}]: Applied Torque: {applied_torque}\n")
-            print(f"Body Acc: {body_acc_w}\n")
-            print(f"Root State: {root_state}\n")
-
-            if count == 20:
-                print(f"Early stop")
-                return
-
+        #     print(f"\n[{count}]: Applied Torque: {applied_torque}\n")
+        #     print(f"Body Acc: {body_acc_w}\n")
+        #     print(f"Root State: {root_state}\n")
 
         robot.write_data_to_sim()        
 
@@ -270,32 +301,24 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         #      Using GUI; can I see the tail's frame of reference rotating??? --> No, it does not rotate.
         
         body_names = articulation_view.body_names
-        print(f"Body names: {body_names}")
-        # return
-        
-        
-        # print(f"""    Ang-vel-sim: {ang_vel_sim[0]}, Applied joint efforts: {applied_joint_efforts[0]}, 
-        #       Applied actions: {applied_actions.joint_positions[0]}, Joint velocities: {joint_velocities[0]}, 
-        #       Measured joint efforts: {measured_joint_efforts[0]}, \n
-        #       world_poses: \n
-        #         {world_poses}
-        #       world_scales: \n
-        #         {world_scales}\n""")
-
-        # if count % 5 == 0:
-        #     print(f"[C: {count}]: Ang-vel: {ang_vel}, Effort: {measured_joint_efforts[0].float()}")
-        #     print(f"    Vel-Target: {robot._joint_vel_target_sim}")
-        # if count % 50 == 0:
-        #     # print(f"Current effort at {base_effort} with count = {count}")
-        #     # print(f"Robot joint efforts: {robot._joint_effort_target_sim}")
-        #     print(f"Current ang-vel at {ang_vel} with count = {count}")
-        #     print(f"Robot_joint_efforts: {measured_joint_efforts}")
-            
+        # print(f"Body names: {body_names}")       
 
         sim.step() 
         count += 1
 
         robot.update(sim_dt)
+
+        ### Store values ###
+        data_recorder.store(count*sim_dt, {"friction": ArtData.joint_friction[0].item(),
+                                           "damping": ArtData.joint_damping[0].item(),
+                                           "vel_setpoint": robot._joint_vel_target_sim[0].item(),
+                                           "effort_setpoint": robot._joint_effort_target_sim[0].item(),
+                                           "vel_joint": ArtData.joint_vel[0].item(),
+                                           "effort_joint": ArtData.applied_torque[0].item(),
+                                           "effort_joint(articulation_view)": articulation_view.get_applied_joint_efforts()[0].item(),
+                                           "computed_effort": ArtData.computed_torque[0].item(),
+                                           })
+        # data_recorder.save("source/temp/trial_data.csv")
 
 
 ### MAIN ###
