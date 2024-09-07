@@ -101,7 +101,7 @@ class DataRecorder:
         plt.tight_layout()
         plt.show(block=True)
 
-    def plot(self, dictionary: dict = None):
+    def plot(self, dictionary: dict = None, save_path: str = "source/temp/default_plot.png"):
         """This function plots the specified columns.
         The input dictionary contains as keys the titles of the subplots
         and the value (list) the columnns to plot within the same subplot."""
@@ -131,4 +131,5 @@ class DataRecorder:
 
         # Add spacing between subplots because titles interfere with the plots
         plt.tight_layout()
-        plt.show(block=True)
+        # plt.show(block=True)
+        plt.savefig(save_path)
