@@ -93,13 +93,12 @@ def design_scene() -> tuple[dict, list[list[float]]]:
 
     # Multiple origins
     z = 1
-    origins = [[0, 0, z], [2, 0, z], [4, 0, z], 
-               [0, 2, z], [2, 2, z], [4, 2, z]]
+    origins = [[0, 0, z], [2, 0, z], [4, 0, z], [0, 2, z], [2, 2, z], [4, 2, z]]
     for i, origin in enumerate(origins):
         prim_utils.create_prim(f"/World/Origin{i+1}", "Xform", translation=origin)
 
     print(prim_utils.find_matching_prim_paths("/World/Origin.*"))
-    
+
     # box_cfg.prim_path = "/World/Origin.*/Robot"
     # print(f"[M] box_cfg.prim_path: {box_cfg.prim_path}")
     # box = Articulation(cfg=box_cfg)
@@ -113,7 +112,7 @@ def design_scene() -> tuple[dict, list[list[float]]]:
                 # max_linear_velocity=1000.0,
                 # max_angular_velocity=1000.0,
                 # max_depenetration_velocity=100.0,
-                enable_gyroscopic_forces=True
+                enable_gyroscopic_forces=True,
             ),
             articulation_props=sim_utils.ArticulationRootPropertiesCfg(
                 articulation_enabled=True,
@@ -121,8 +120,8 @@ def design_scene() -> tuple[dict, list[list[float]]]:
             ),
         ),
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0, 0, 0.5), 
-            # joint_pos={"box_to_rod": -1.5708}, 
+            pos=(0, 0, 0.5),
+            # joint_pos={"box_to_rod": -1.5708},
             joint_pos={"box_to_rod": -0.3},
             # joint_vel={"box_to_rod": 10.0}
         ),
@@ -134,15 +133,10 @@ def design_scene() -> tuple[dict, list[list[float]]]:
             #     stiffness=0.0,
             #     damping=10.0,
             #     ),
-            "rod_motor" : ImplicitActuatorCfg(
-                joint_names_expr=["box_to_rod"],
-                damping=10.0,
-                effort_limit=400.0,
-                stiffness=0.0,
-                velocity_limit=100.0
+            "rod_motor": ImplicitActuatorCfg(
+                joint_names_expr=["box_to_rod"], damping=10.0, effort_limit=400.0, stiffness=0.0, velocity_limit=100.0
             )
-            },
-            
+        },
     )
 
     box = Articulation(cfg=box_cfg)
@@ -164,8 +158,6 @@ def design_scene() -> tuple[dict, list[list[float]]]:
     # cone_cfg.prim_path = "/World/Origin.*/Robot"
     # box = RigidObject(cfg=cone_cfg)
     #########################
-
-
 
     # print(f"[M] box_cfg.prim_path: {box_cfg.prim_path}")
     # print(f"[M] box_cfg.actuators: {box_cfg.actuators}")
@@ -205,25 +197,23 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
 
             joint_vel = robot.data.default_joint_vel.clone()
             # joint_vel += torch.rand_like(joint_vel) * 0.4
-            
+
             print(f"-- INITIALIZATION --")
             print(f"Joint_pos:\n    {joint_pos}")
             print(f"Joint_vel:\n    {joint_vel}")
 
-            robot.write_joint_state_to_sim(position=joint_pos, 
-                                           velocity=joint_vel,
-                                           env_ids=None)
+            robot.write_joint_state_to_sim(position=joint_pos, velocity=joint_vel, env_ids=None)
 
             # clear internal buffers
             robot.reset()
             print("[INFO]: Resetting robot state...")
-        
+
         # Apply torque to the 'box_to_rod' joint
         num_entities = robot.num_instances
         # torque = torch.full((num_entities, 1), 200.0).to('cuda')  # Torque value in Nm
         # joint_index, joint_names = robot.find_joints(name_keys="box_to_rod")
-        # robot.set_joint_effort_target(target=torque, 
-        #                               joint_ids=joint_index, 
+        # robot.set_joint_effort_target(target=torque,
+        #                               joint_ids=joint_index,
         #                               env_ids=None)
         # robot.write_data_to_sim()
 
@@ -234,7 +224,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
         # print(f"Joint Names: {robot.joint_names}")
 
         # Apply an effort
-        base_effort = 100 * ((500-count)/500)
+        base_effort = 100 * ((500 - count) / 500)
         efforts = torch.full(robot.data.joint_pos.shape, base_effort)
         # efforts = efforts.to('cpu')
         robot.set_joint_effort_target(efforts)
@@ -245,7 +235,7 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
             print(f"Current effort at {base_effort} with count = {count}")
             print(f"Robot joint efforts: {robot._joint_effort_target_sim}")
 
-        sim.step() 
+        sim.step()
         count += 1
 
         robot.update(sim_dt)

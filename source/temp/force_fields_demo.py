@@ -28,11 +28,15 @@ import omni.physx.scripts.physicsUtils as physicsUtils
 import omni.kit
 import omni.physxdemos as demo
 
+
 class ExplodeForceFieldDemo(demo.Base):
     title = "ForceFieldExplode"
     category = demo.Categories.DEMOS
     short_description = "Suck objects together before they are blown apart."
-    description = "Use two spherical force fields to first attract objects to a central point and then explode them apart."
+    description = (
+        "Use two spherical force fields to first attract objects to a central point and then explode them apart."
+    )
+
     def create(self, stage):
         numberOfBoxes = 20
         boxSpacing = 2
@@ -95,6 +99,7 @@ class ExplodeForceFieldDemo(demo.Base):
         # Animate the force fields on and off
         global time
         time = 0.0
+
         def force_fields_step(deltaTime):
             global time
             time = time + deltaTime
@@ -114,6 +119,7 @@ class ExplodeForceFieldDemo(demo.Base):
                 suckPrimApi.GetEnabledAttr().Set(True)
                 explodePrimApi.GetEnabledAttr().Set(False)
                 dragPrimApi.GetEnabledAttr().Set(False)
+
         def timeline_event(event):
             # on play press
             if event.type == int(omni.timeline.TimelineEventType.PLAY):
@@ -122,6 +128,7 @@ class ExplodeForceFieldDemo(demo.Base):
             # on stop press
             if event.type == int(omni.timeline.TimelineEventType.STOP):
                 pass
+
         physxInterface = omni.physx.get_physx_interface()
         self._subscriptionId = physxInterface.subscribe_physics_step_events(force_fields_step)
         timelineInterface = omni.timeline.get_timeline_interface()
