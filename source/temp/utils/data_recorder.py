@@ -47,63 +47,6 @@ class DataRecorder:
         self.df = pd.DataFrame.from_dict(self.data, orient="index")
         self.df.to_csv(path, index_label="time_seconds")
 
-    def plot_old(self, columns_to_plot: Union[list, dict] = None):
-        "Creates a matplotlib pop-up plot of the (relevant) stored values. Columns_to_plot is a list of column names."
-
-        def add_subplot(fig, ax, title, cols):
-            if not isinstance(cols, list):
-                cols = [cols]
-
-            for col in cols:
-                ax.plot(self.df.index, self.df[col])
-                ax.set_title(title)
-                ax.set_xlabel("Time [s]")
-                ax.set_ylabel(col)
-
-        if self.df is None:
-            print(f"Saving df first...")
-            self.save("source/temp/trial_data.csv")
-
-        available_columns = self.df.columns
-        # Filter columns if columns_to_plot is provided
-        if columns_to_plot is None:
-            columns_to_plot = available_columns
-        elif isinstance(columns_to_plot, dict):
-            # Subplots
-            titles = list(columns_to_plot.keys())
-            # Subplot count
-            num_subplots = len(titles)
-
-            fig, axes = plt.subplots(num_subplots, 1, figsize=(10, 3 * num_subplots))
-
-        else:
-            # Ensure only valid columns are being plotted
-            columns_to_plot = [col for col in columns_to_plot if col in available_columns]
-
-        print(f"Columns being plotted: {columns_to_plot}")
-
-        # Create a figure and set of subplots
-        num_columns = len(columns_to_plot)
-        fig, axes = plt.subplots(num_columns, 1, figsize=(10, 3 * num_columns))
-
-        # Ensure axes is always iterable
-        if num_columns == 1:
-            axes = [axes]
-
-        # Plot each column in a separate subplot
-        for i, col in enumerate(columns_to_plot):
-            ax = axes[i]
-            ax.plot(self.df.index, self.df[col])
-            ax.set_title(col)
-            ax.set_xlabel("Time [s]")
-            ax.set_ylabel(col)
-            # ax.set_ylim(bottom=0)  # Limit y-axis to positive values only
-
-        plt.suptitle(title)
-        # Adjust layout to prevent overlap
-        plt.tight_layout()
-        plt.show(block=True)
-
     def plot(self, dictionary: dict = None, save_path: str = "source/temp/default_plot.png"):
         """This function plots the specified columns.
         The input dictionary contains as keys the titles of the subplots
