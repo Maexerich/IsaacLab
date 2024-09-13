@@ -13,7 +13,7 @@ from omni.isaac.lab.app import AppLauncher
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Second urdf implementation script.")
 # Default to headless mode
-if True:
+if False:
     sys.argv.append("--headless")
     print(
         "\n" * 5, "#" * 65, f"\n ------------------ Running in headless mode ------------------\n", "#" * 65, "\n" * 5
@@ -38,6 +38,12 @@ import os
 import omni.isaac.core.utils.prims as prim_utils
 from omni.isaac.core.articulations import ArticulationView
 
+# FF: Imports
+from pxr import Usd, Gf
+from pxr import UsdGeom, UsdPhysics
+from pxr import ForceFieldSchema
+from pxr.ForceFieldSchema import PhysxForceFieldAPI, PhysxForceFieldDragAPI, PhysxForceFieldLinearAPI
+
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.assets import Articulation, ArticulationCfg, ArticulationData, RigidObjectCfg, RigidObject
 from omni.isaac.lab.sim import SimulationContext
@@ -48,13 +54,13 @@ import omni.physx as physx
 ### Store values ###
 from utils.data_recorder import DataRecorder
 
-DATA_RECORDER = DataRecorder(record=True)
+DATA_RECORDER = DataRecorder(record=False)
 
 ### Ang Acceleration Profile ###
 from utils.control_methods import SimpleAngAccelProfile
 
 ### CFG ###
-DAMPING = 10.0
+DAMPING = 0.0 # 10.0
 BOX_CFG = ArticulationCfg(
     prim_path="/World/Origin.*/Robot",
     spawn=sim_utils.UsdFileCfg(
@@ -68,7 +74,9 @@ BOX_CFG = ArticulationCfg(
             # kinematic_enabled=True
         ),
         articulation_props=sim_utils.ArticulationRootPropertiesCfg(
-            articulation_enabled=True, enabled_self_collisions=True, fix_root_link=True
+            articulation_enabled=True, 
+            enabled_self_collisions=True, 
+            fix_root_link=True # Fix Base Root
         ),
     ),
     init_state=ArticulationCfg.InitialStateCfg(
@@ -95,24 +103,81 @@ BOX_CFG = ArticulationCfg(
 def design_scene() -> tuple[dict, list[list[float]]]:
     "Designs the scene."
 
+    # Create a new USD stage
+    stage = Usd.Stage.CreateNew("source/temp/temp.usda")
+
     # Ground-plane
     ground_cfg = sim_utils.GroundPlaneCfg()
     ground_cfg.func("/World/defaultGroundPlane", ground_cfg)
-
+    
+    # Add the ground plane to the USD stage
+    ground_prim = UsdGeom.Xform.Define(stage, "/World/defaultGroundPlane")
+    
     # Lights
     light_cfg = sim_utils.DomeLightCfg(intensity=3000.0, color=(0.75, 0.75, 0.75))
     light_cfg.func("/World/Light", light_cfg)
+
+    # Add the light to the USD stage
+    light_prim = UsdGeom.Xform.Define(stage, "/World/Light")
 
     # Multiple origins
     z = 1
     origins = [[0, 0, z], [2, 0, z], [4, 0, z], [0, 2, z], [2, 2, z], [4, 2, z]]
     for i, origin in enumerate(origins):
-        prin = prim_utils.create_prim(f"/World/Origin{i+1}", "Xform", translation=origin)
+        prim = prim_utils.create_prim(f"/World/Origin{i+1}", "Xform", translation=origin)
+        # Ensure the prim is in the USD stage
+        origin_prim = UsdGeom.Xform.Define(stage, f"/World/Origin{i+1}") 
 
+    # Create an articulation (like a box) and add it to the stage
     box = Articulation(cfg=BOX_CFG)
+    box_prim = UsdGeom.Xform.Define(stage, "/World/Box")
+    box_prim.AddTranslateOp().Set(box.cfg.init_state.pos)
 
-    # return the scene information
+    ### Force Fields ###
+    # scene = UsdPhysics.Scene.Define(stage, "/World/scene")
+    xformPrim = UsdGeom.Xform.Define(stage, "/World/Drag")
+
+    ## DRAG ##
+    drag  = xformPrim.GetPrim()
+    dragPrimApi = PhysxForceFieldDragAPI.Apply(drag, "Drag")
+    dragPrimApi.CreateMinimumSpeedAttr(0.0)
+    dragPrimApi.CreateSquareAttr(10e8) # TODO: What does this value mean?
+    dragPrimApi.CreateLinearAttr(0.0) # TODO: Will this ensure no linear drag?
+
+    # Create a base API
+    dragBaseApi = PhysxForceFieldAPI(drag, "Drag")
+    dragBaseApi.CreateEnabledAttr(True) # Set to False to disable the force field
+    dragBaseApi.CreatePositionAttr(Gf.Vec3f(0.0, 0.0, 0.0)) # Set position of force field at origin (senseless for a drag force)
+    dragBaseApi.CreateRangeAttr(Gf.Vec2f(-1.0, -1.0)) # Minimum and maximum range of effect, -1.0 means infinite
+
+    ## WIND ##
+    wind  = xformPrim.GetPrim()
+    windPrimApi = PhysxForceFieldLinearAPI.Apply(drag, "Wind")
+    windPrimApi.CreateConstantAttr(1000.0)
+    windPrimApi.CreateLinearAttr(10.0)
+    windPrimApi.CreateInverseSquareAttr(0.0)
+
+    # Create a base API
+    windBaseApi = PhysxForceFieldAPI(drag, "Wind")
+    windBaseApi.CreateEnabledAttr(True) # Set to False to disable the force field
+    windBaseApi.CreatePositionAttr(Gf.Vec3f(0.0, 0.0, 0.0)) # Set position of force field at origin
+    windBaseApi.CreateRangeAttr(Gf.Vec2f(-1.0, -1.0))
+
+    # Collection
+    collectionAPI = Usd.CollectionAPI.Apply(drag, ForceFieldSchema.Tokens.forceFieldBodies)
+    collectionAPI.CreateIncludesRel().AddTarget(box_prim.GetPath()) # This differs from 'template'
+
+    # Return the scene information
     scene_entities = {"box": box}
+
+    # Save the stage to file
+    stage.GetRootLayer().Save()
+
+    ground_prim = stage.GetPrimAtPath("/World/defaultGroundPlane")
+    light_prim = stage.GetPrimAtPath("/World/Light")
+    box_prim = stage.GetPrimAtPath("/World/Box")
+    wind_prim = stage.GetPrimAtPath("/World/Drag")
+
     return scene_entities, origins
 
 
@@ -162,27 +227,29 @@ def run_simulator(sim: sim_utils.SimulationContext, entities: dict[str, Articula
             robot.reset()
             print("[INFO]: Resetting robot state...")
 
-        # Follow ang-vel profile
-        ang_vel = ang_vel_profile.get_ang_vel(count=count)
-        # print(f"[C: {count}]: Ang-vel: {ang_vel}")
+        # ### Follow ang-vel profile ###
+        # ang_vel = ang_vel_profile.get_ang_vel(count=count)
+        # if ang_vel is not None:
+        #     ### Following Ang-Vel profile ###
+        #     # For velocity control; stiffness must be 0.0, damping must be non-zero
+        #     # (source: omni.isaac.core Articulations Documentation)
+        #     articulation_view.switch_control_mode(mode="velocity")
+        #     robot.write_joint_damping_to_sim(torch.full_like(robot.actuators["rod_motor"].damping, DAMPING))
+        #     # Set joint velocity setpoint
+        #     joint_vel_setpoint = torch.full_like(robot.actuators["rod_motor"].applied_effort, ang_vel)
+        #     robot.set_joint_velocity_target(joint_vel_setpoint)
+        # else:
+        #     ### Free swing of the tail ###
+        #     # For effort control; stiffness and damping must be 0.0
+        #     robot.set_joint_velocity_target(torch.zeros_like(robot.actuators["rod_motor"].applied_effort))
+        #     articulation_view.switch_control_mode(mode="effort")
+        #     robot.write_joint_damping_to_sim(torch.zeros_like(robot.actuators["rod_motor"].damping))
+        #     # Set zero effort (should let tail swing freely???)
+        #     robot.set_joint_effort_target(torch.zeros_like(robot.actuators["rod_motor"].applied_effort))
 
-        if ang_vel is not None:
-            ### Following Ang-Vel profile ###
-            # For velocity control; stiffness must be 0.0, damping must be non-zero
-            # (source: omni.isaac.core Articulations Documentation)
-            articulation_view.switch_control_mode(mode="velocity")
-            robot.write_joint_damping_to_sim(torch.full_like(robot.actuators["rod_motor"].damping, DAMPING))
-            # Set joint velocity setpoint
-            joint_vel_setpoint = torch.full_like(robot.actuators["rod_motor"].applied_effort, ang_vel)
-            robot.set_joint_velocity_target(joint_vel_setpoint)
-        else:
-            ### Free swing of the tail ###
-            # For effort control; stiffness and damping must be 0.0
-            robot.set_joint_velocity_target(torch.zeros_like(robot.actuators["rod_motor"].applied_effort))
-            articulation_view.switch_control_mode(mode="effort")
-            robot.write_joint_damping_to_sim(torch.zeros_like(robot.actuators["rod_motor"].damping))
-            # Set zero effort (should let tail swing freely???)
-            robot.set_joint_effort_target(torch.zeros_like(robot.actuators["rod_motor"].applied_effort))
+        articulation_view.switch_control_mode(mode="velocity")
+        # robot.write_joint_damping_to_sim(torch.zeros_like(robot.actuators["rod_motor"].damping))
+        robot.set_joint_velocity_target(torch.zeros_like(robot.actuators["rod_motor"].applied_effort))
 
         robot.write_data_to_sim()
 
