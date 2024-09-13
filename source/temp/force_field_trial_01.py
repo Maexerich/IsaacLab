@@ -1,10 +1,6 @@
 import argparse
 import sys
 
-# Data Storage - Class
-# import pandas as pd
-# import matplotlib.pyplot as plt
-
 import time
 
 from omni.isaac.lab.app import AppLauncher
@@ -32,7 +28,7 @@ simulation_app = app_launcher.app
 
 
 ### IMPORTS ###
-import torch
+import torch   
 import os
 
 import omni.isaac.core.utils.prims as prim_utils
@@ -125,6 +121,7 @@ def design_scene() -> tuple[dict, list[list[float]]]:
     origins = [[0, 0, z], [2, 0, z], [4, 0, z], [0, 2, z], [2, 2, z], [4, 2, z]]
     for i, origin in enumerate(origins):
         prim = prim_utils.create_prim(f"/World/Origin{i+1}", "Xform", translation=origin)
+        prim2 = prim_utils.create_prim(f"/World/Origin2_{i+1}", "Xform", translation=origin)
         # Ensure the prim is in the USD stage
         origin_prim = UsdGeom.Xform.Define(stage, f"/World/Origin{i+1}") 
 
@@ -132,6 +129,20 @@ def design_scene() -> tuple[dict, list[list[float]]]:
     box = Articulation(cfg=BOX_CFG)
     box_prim = UsdGeom.Xform.Define(stage, "/World/Box")
     box_prim.AddTranslateOp().Set(box.cfg.init_state.pos)
+
+    ### CONE ###
+    cone_cfg = RigidObjectCfg(
+        prim_path="/World/Origin2_.*/Cone",
+        spawn=sim_utils.ConeCfg(
+            radius=0.1,
+            height=0.2,
+            rigid_props=sim_utils.RigidBodyPropertiesCfg(),
+            mass_props=sim_utils.MassPropertiesCfg(mass=0.2),
+            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.5, 0.2, 0.05), roughness=0.2)
+        ),
+        init_state=RigidObjectCfg.InitialStateCfg(),
+    )
+    cone_object = RigidObject(cfg=cone_cfg)
 
     ### Force Fields ###
     # scene = UsdPhysics.Scene.Define(stage, "/World/scene")
