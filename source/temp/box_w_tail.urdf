@@ -75,10 +75,22 @@
   <joint name="box_to_rod" type="continuous">
     <parent link="box"/>
     <child link="rod"/>
+    <!-- Origin position in x = length_x(box)/2 + radius_cylinder = 0.65 + 0.05 = 0.7 -->
     <origin xyz="-0.7 0 0" rpy="0 0 0"/>
     <axis xyz="1 0 0"/>
     <!-- <limit lower="-1.57" upper="1.57" effort="10.0" velocity="1.0"/> -->
   </joint>
+
+  <!-- Endeffector -->
+  <link name="endeffector">
+    <origin>xyz="0.7 0 0.7" rpy="0 0 0"</origin>
+  </link>
+
+  <!-- Joint between rod and endeffector -->
+  <joint name="rod_to_endeffector" type="fixed">
+    <parent link="rod"/>
+    <child link="endeffector"/>
+    <origin xyz="0.7 0 0" rpy="0 0 0"/>
 
   <!-- Actuator (if needed)
   <transmission type="SimpleTransmission" name="rod_trans">
