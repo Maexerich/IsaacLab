@@ -90,25 +90,7 @@
   <joint name="rod_to_endeffector" type="fixed">
     <parent link="rod"/>
     <child link="endeffector"/>
-    <origin xyz="0.7 0 0" rpy="0 0 0"/>
-
-  <!-- Actuator (if needed)
-  <transmission type="SimpleTransmission" name="rod_trans">
-    <actuator name="rod_motor"/>
-    <joint name="box_to_rod"/>
-    <mechanicalReduction>1</mechanicalReduction>
-  </transmission>
-
-  <!-- Actuator for controlling the joint -->
-  <gazebo>
-    <plugin name="rod_joint_controller" filename="libgazebo_ros_joint_position_controller.so">
-      <joint>box_to_rod</joint>
-      <pid>
-        <p>100.0</p>
-        <i>0.1</i>
-        <d>10.0</d>
-      </pid>
-    </plugin>
-  </gazebo> -->
+    <origin xyz="0 0 0.7" rpy="0 0 0"/>
+  </joint>
 
 </robot>
