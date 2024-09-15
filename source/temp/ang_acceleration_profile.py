@@ -13,7 +13,7 @@ from omni.isaac.lab.app import AppLauncher
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Second urdf implementation script.")
 # Default to headless mode
-if True:
+if False:
     sys.argv.append("--headless")
     print(
         "\n" * 5, "#" * 65, f"\n ------------------ Running in headless mode ------------------\n", "#" * 65, "\n" * 5
@@ -48,7 +48,7 @@ import omni.physx as physx
 ### Store values ###
 from utils.data_recorder import DataRecorder
 
-DATA_RECORDER = DataRecorder(record=True)
+DATA_RECORDER = DataRecorder(record=False)
 
 ### Ang Acceleration Profile ###
 from utils.control_methods import SimpleAngAccelProfile
@@ -76,6 +76,7 @@ BOX_CFG = ArticulationCfg(
         joint_pos={"box_to_rod": -1.5708},
         # joint_pos={"box_to_rod": -0.3},
         # joint_vel={"box_to_rod": 10.0}
+        # lin_vel=(3, 0, 0),
     ),
     actuators={
         "rod_motor": ImplicitActuatorCfg(

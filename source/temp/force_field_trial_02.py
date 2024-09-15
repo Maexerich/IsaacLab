@@ -34,6 +34,10 @@ from pxr.ForceFieldSchema import PhysxForceFieldAPI, PhysxForceFieldLinearAPI
 
 from omni.isaac.lab.sim import SimulationContext
 
+# import omni.isaac.core.utils.prims as prim_utils
+import omni.isaac.core.utils.prims as prims_utils
+
+
 
 ### Functions ###
 def spawn_cones_at_origins(stage, origins):
@@ -81,12 +85,28 @@ def add_wind_force_field(stage, wind_strength=1000.0):
     wind_base_api.CreatePositionAttr(Gf.Vec3f(0.0, 0.0, 0.0))  # Set the position of the wind source
     wind_base_api.CreateRangeAttr(Gf.Vec2f(-1.0, -1.0))  # Infinite range in this case
 
+def setup_ground_and_light(stage):
+    # Ground plane
+    value = prims_utils.create_prim(prim_path="/World/defaultGroundPlane", prim_type="defaultGroundPlane")
+
+    # Light
+    value = prims_utils.create_prim(prim_path="/World/Light", prim_type="domeLight")
+
+    ### ERROR : This function is not yet working!!! ###
+    # Also missing is a camera setup
+    
+
+
 def run_simulation():
     # Initialize the simulation context
     sim_context = SimulationContext()
 
     # Load the stage
     stage = Usd.Stage.Open("source/temp/temp_cones.usda")
+
+    for prim in stage.Traverse():
+        prim
+    
 
     # Run the simulation for a certain number of steps
     for _ in range(500):  # Simulate for 240 frames (~4 seconds at 60 fps)
@@ -102,6 +122,9 @@ def main():
 
     # Stage
     stage = Usd.Stage.CreateNew("source/temp/temp_cones.usda")
+
+    # Spawn ground plane and light
+    setup_ground_and_light(stage)
 
     # Spawn cones
     origins = [[0, 0, 1], [2, 0, 1], [4, 0, 1], [0, 2, 1], [2, 2, 1], [4, 2, 1]]
