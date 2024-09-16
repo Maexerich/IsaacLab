@@ -100,9 +100,22 @@ def design_scene():
 
     return box, origin
 
-def find_tail_position(robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData):
-    """Returns a vector representing tail orientation in world frame as well as a vector representing the instantaneous
-    rotation axis of said vector."""
+def get_tail_orientation(robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData):
+    """
+    Computes and returns key information regarding the orientation and rotation of the tail (or rod) in the world frame.
+    Note that this function is custom for the specific robot model used in this script.
+
+    Args:
+    - robot (Articulation): The robot object containing the articulated model.
+    - articulation_view (ArticulationView): Provides access to joint states, body indices, and kinematic details.
+    - artdata (ArticulationData): Contains body position and velocity data in the world frame.
+
+    Returns:
+    - dict: A dictionary containing:
+      - "tail_orientation": A vector in world coordinates representing the tail's orientation from the rod joint to the end-effector.
+      - "rotation_axis": A normalized vector representing the current axis of rotation.
+      - "rotation_magnitude": The magnitude of angular velocity around the axis of rotation.
+    """
     ### Joint Configuration
     joint_cfg = {
         "position[radians]": articulation_view.get_joint_positions(),
@@ -134,6 +147,17 @@ def find_tail_position(robot: Articulation, articulation_view: ArticulationView,
     tail_orientation_in_world_coordinates = endeffector_pos_vec - rod_joint_pos_vec
 
     return {"tail_orientation": tail_orientation_in_world_coordinates, "rotation_axis": axis_of_rotation, "rotation_magnitude": rotation_magnitude}
+
+def apply_forces(robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData, tail_motion: dict):
+    ### Forces ###
+    WIND = torch.tensor([-30.0, 0.0, 0.0]) # m/s
+    density_air = 1.293 # kg/m^3
+    C_drag = 1.1 # [has no unit]
+
+    # x shall be variable along tail length
+    tail_length = 0.7 # TODO: Tail length is hard-coded
+    tail_length = torch.norm(input=tail_motion["tail_orientation"], p=2)
+    x = torch.linspace(0.0, tail_length, steps=200)
 
 def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: torch.Tensor):
     "Runs the simulation."
@@ -190,7 +214,11 @@ def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: t
         if count % 20 == 0:
             pass
 
-        find_tail_position(robot, articulation_view, artdata)
+        # Get tail motion
+        tail_motion = get_tail_orientation(robot, articulation_view, artdata)
+        # Apply wind and drag force
+        apply_forces(robot, articulation_view, artdata, tail_motion)
+
 
 
 # Main
