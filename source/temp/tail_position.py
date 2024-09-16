@@ -9,7 +9,7 @@ from omni.isaac.lab.app import AppLauncher
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Second urdf implementation script.")
 # Default to headless mode
-if False:
+if True:
     sys.argv.append("--headless")
     print(
         "\n" * 5, "#" * 65, f"\n ------------------ Running in headless mode ------------------\n", "#" * 65, "\n" * 5
@@ -100,7 +100,7 @@ def design_scene():
 
     return box, origin
 
-def get_tail_orientation(robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData):
+def get_tail_orientation(time_seconds: float, robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData):
     """
     Computes and returns key information regarding the orientation and rotation of the tail (or rod) in the world frame.
     Note that this function is custom for the specific robot model used in this script.
@@ -145,19 +145,112 @@ def get_tail_orientation(robot: Articulation, articulation_view: ArticulationVie
     rod_joint_pos_vec = get_body_position_vector("rod")
     endeffector_pos_vec = get_body_position_vector("endeffector")
     tail_orientation_in_world_coordinates = endeffector_pos_vec - rod_joint_pos_vec
+    tail_orientation_in_world_coordinates = torch.reshape(tail_orientation_in_world_coordinates, (3,1))
+
+    DATA_RECORDER.record(time_seconds=time_seconds, values={
+        "tail_orientation_radians": joint_cfg["position[radians]"],
+        # "tail_orientation_degrees": np.rad2deg(joint_cfg["position[radians]"].cpu()),
+        "tail_velocity": joint_cfg["velocity[radians/s]"],
+        })
 
     return {"tail_orientation": tail_orientation_in_world_coordinates, "rotation_axis": axis_of_rotation, "rotation_magnitude": rotation_magnitude}
 
-def apply_forces(robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData, tail_motion: dict):
-    ### Forces ###
-    WIND = torch.tensor([-30.0, 0.0, 0.0]) # m/s
-    density_air = 1.293 # kg/m^3
-    C_drag = 1.1 # [has no unit]
+def apply_forces(time_seconds: float, robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData, tail_motion: dict, apply: bool = True):
+    """
+    This function takes the wind and drag and calculates the discretized combined forces acting along the tail.
+    Each of these forces induce a torque. 
+    This function calculates a substitution-force, which when applied through the CoM of the tail, results in the 
+    same total torque.
+    This function does not only apply forces resulting in roll-torque, but in arbitrary directions.
 
-    # x shall be variable along tail length
+    For reader: I use different words for the two different components contributing to total force:
+    - 'drag': This is the drag induced by the tail's motion/rotation through the air, neglecting any incoming wind
+    - 'wind': This is used to describe an additional wind blowing.
+    The superposition of these two vectors provide the total experienced wind at a given location.
+    
+    """
+    ### Forces ###
+    WIND = torch.tensor([[-30.0], [0.0], [0.0]], device='cuda:0') # m/s
+    density_air = 1.293 # kg/m^3
+    C_d = 1.1 # [has no unit]
+
+    ### x shall be variable along tail length
     tail_length = 0.7 # TODO: Tail length is hard-coded
     tail_length = torch.norm(input=tail_motion["tail_orientation"], p=2)
     x = torch.linspace(0.0, tail_length, steps=200)
+
+    ### Drag: due to the tail's motion, ignoring wind
+    w_vec = tail_motion["rotation_axis"] * tail_motion["rotation_magnitude"] # Not per se necessary, could just use rotation_axis
+    # e_drag = torch.cross(w_vec, torch.reshape(tail_motion["tail_orientation"], (3,1)))
+    e_drag = torch.cross(w_vec, tail_motion["tail_orientation"])
+    torch.reshape(tail_motion["tail_orientation"], (1, 3))
+    e_drag = e_drag/torch.norm(input=e_drag, p=2) # Unit vector pointing in the direction of drag force
+
+    ### Combine Wind and Drag
+    if torch.norm(input=WIND, p=2) == 0:
+        e_wind = WIND
+    else:
+        e_wind = WIND/torch.norm(input=WIND, p=2) # Unit vector pointing in direction of additional wind
+    e_F = -1* (e_wind + e_drag)/(torch.norm(input=e_wind + e_drag, p=2)) # Unit vector pointing in direction of combined wind and drag force
+    
+    ### Surface A perpendicular to perceived wind
+    # Project tail length onto plane perpendicular to e_F
+    # Intuition: Project L onto e_F (L*e_F). Multiply this scalar by e_F to get the projection vector.
+    #            Subtract this projection vector from L (= subtract part of L which is parallel to e_F)
+    L_projected = tail_motion["tail_orientation"] - torch.dot(tail_motion["tail_orientation"][:,0], e_F[:,0]) * e_F
+    # Surface Area A
+    diameter = 0.1 # TODO: Diameter
+    A_tilde = torch.norm(input=L_projected, p=2) * diameter # Diameter is hard-coded!!!
+
+    ### Numerical Integration
+    # Function to integrate: (||v_wind + e_Drag * w * x||)^2 * x
+    integrand = torch.zeros_like(x)
+    for i in range(len(x)):
+        # Combined wind and drag:
+        v = WIND + e_drag * tail_motion["rotation_magnitude"] * x[i]
+        integrand[i] = torch.norm(input=v, p=2)**2 * x[i]
+    # Numerically integrate
+    integrated_force = torch.trapz(integrand, x=x)
+
+    ### Equivalent Force through CoM
+    F = (density_air * C_d) / tail_length * A_tilde * e_F * integrated_force
+    F = torch.reshape(F, (1, 1, 3))
+
+    ### Apply force
+    DATA_RECORDER.record(time_seconds=time_seconds, values={
+        "e_F_x": e_F[0,0],
+        "e_F_y": e_F[1,0],
+        "e_F_z": e_F[2,0],
+        "F_wind_x": F[0,0,0],
+        "F_wind_y": F[0,0,1],
+        "F_wind_z": F[0,0,2],
+        "A_tilde": A_tilde,
+    })
+    if apply:
+        robot.set_external_force_and_torque(forces=F, torques=torch.zeros_like(F), body_ids=[2], env_ids=[0])
+        robot.write_data_to_sim()
+    else:
+        print(f"Force not applied {F[0,0,:]}")
+
+def record_robot_forces(time_seconds: float, robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData):
+    # Access joint forces & torques for 0th environment/entity
+    forces_and_torques = articulation_view.get_measured_joint_forces(indices=[0], joint_indices=[1])[0]
+    force_torque_dict = {
+        key: forces_and_torques[0][i] for i, key in enumerate(["fx", "fy", "fz", "tx", "ty", "tz"])
+    }
+    
+    values = {
+        "friction": artdata.joint_friction[0].item(),
+        "damping": artdata.joint_damping[0].item(),
+        "vel_setpoint": robot._joint_vel_target_sim[0].item(),
+        "vel_applied": articulation_view.get_joint_velocities()[0].item(),
+        "effort_setpoint": robot._joint_effort_target_sim[0].item(),
+        "effort_applied": artdata.applied_torque[0].item(),
+        "effort_measured": articulation_view.get_measured_joint_efforts()[0].item(),
+    }
+
+    DATA_RECORDER.record(time_seconds=time_seconds, values={**values, **force_torque_dict
+    })
 
 def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: torch.Tensor):
     "Runs the simulation."
@@ -179,6 +272,10 @@ def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: t
     while simulation_app.is_running():
         # Rest
         if count % reset_count == 0:
+            if count == reset_count and DATA_RECORDER.record_bool == True:
+                DATA_RECORDER.save("source/temp/trial_data.csv")
+                return
+            
             count = 0
 
             print(f"        ----------------- Resetting -----------------")
@@ -200,8 +297,27 @@ def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: t
         # Effort on tail
         articulation_view.switch_control_mode(mode='effort')
         robot.write_joint_damping_to_sim(torch.full_like(shape, 0.0))
-        effort = 10.0
+        effort = 25.0
         robot.set_joint_effort_target(torch.full_like(shape, effort))
+
+        # ang_vel = ang_vel_profile.get_ang_vel(count=count)
+        # if ang_vel is not None:
+        #     ### Following Ang-Vel profile ###
+        #     # For velocity control; stiffness must be 0.0, damping must be non-zero
+        #     # (source: omni.isaac.core Articulations Documentation)
+        #     articulation_view.switch_control_mode(mode="velocity")
+        #     robot.write_joint_damping_to_sim(torch.full_like(robot.actuators["motor"].damping, 10.0))
+        #     # Set joint velocity setpoint
+        #     joint_vel_setpoint = torch.full_like(robot.actuators["motor"].applied_effort, ang_vel)
+        #     robot.set_joint_velocity_target(joint_vel_setpoint)
+        # else:
+        #     ### Free swing of the tail ###
+        #     # For effort control; stiffness and damping must be 0.0
+        #     robot.set_joint_velocity_target(torch.zeros_like(robot.actuators["motor"].applied_effort))
+        #     articulation_view.switch_control_mode(mode="effort")
+        #     robot.write_joint_damping_to_sim(torch.zeros_like(robot.actuators["motor"].damping))
+        #     # Set zero effort (should let tail swing freely???)
+        #     robot.set_joint_effort_target(torch.zeros_like(robot.actuators["motor"].applied_effort))
 
     
         robot.write_data_to_sim()
@@ -215,16 +331,18 @@ def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: t
             pass
 
         # Get tail motion
-        tail_motion = get_tail_orientation(robot, articulation_view, artdata)
+        tail_motion = get_tail_orientation(sim_dt*count, robot, articulation_view, artdata)
         # Apply wind and drag force
-        apply_forces(robot, articulation_view, artdata, tail_motion)
+        apply_forces(sim_dt*count, robot, articulation_view, artdata, tail_motion, apply=True)
+
+        record_robot_forces(sim_dt*count, robot, articulation_view, artdata)
 
 
 
 # Main
 def main():
     sim_cfg = sim_utils.SimulationCfg()
-    sim_cfg.dt = 1.0 / 120.0
+    sim_cfg.dt = 1.0 / 240.0
     sim = SimulationContext(sim_cfg)
 
     sim.set_camera_view([-0.5, -6.0, 2.3], [2, 4, 1.5])
@@ -240,6 +358,20 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    DATA_RECORDER.plot(
+        dictionary={
+            "Parameters": ["friction", "damping"],
+            "Joint Velocity": ["vel_setpoint", "vel_applied"],
+            "Joint Torque": ["effort_setpoint", "effort_measured", "effort_applied"],
+            "Torques on Body": ["tx", "ty", "tz"],
+            "Forces on Body": ["fx", "fy", "fz"],
+            "Tail Orientation [rad]": ["tail_orientation_radians"],
+            "Tail Velocity": ["tail_velocity"],
+            "Total Wind Force": ["F_wind_x", "F_wind_y", "F_wind_z"],
+        },
+        save_path="source/temp/tail_position.png"
+    )
 
     # Close sim app
     simulation_app.close()

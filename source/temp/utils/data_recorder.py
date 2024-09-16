@@ -36,9 +36,16 @@ class DataRecorder:
     def record_bool(self):
         return self._record
 
-    def store(self, time_seconds: float, values: dict):
+    def record(self, time_seconds: float, values: dict):
         "Stores values in the data attribute."
+        if time_seconds in self.data:
+            current_entry = self.data[time_seconds]
+            values = {**current_entry, **values}
         self.data[time_seconds] = values
+    
+    def store(self, time_seconds: float, values: dict):
+        self.record(time_seconds, values)
+        print(f"Use the 'record' method henceforth.")
 
     def save(self, path: str):
         "Saves the data attribute as a .csv file at the given path."
@@ -78,6 +85,8 @@ class DataRecorder:
                 axes[i].set_ylabel("Torque [Nm]")
             elif "Force" in title:
                 axes[i].set_ylabel("Force [N]")
+            elif "deg" in title:
+                axes[i].set_ylabel("Angle [deg]")
 
             axes[i].set_title(title)
             axes[i].set_xlabel("Time [s]")
