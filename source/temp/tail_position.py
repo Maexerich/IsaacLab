@@ -101,38 +101,75 @@ def design_scene():
     return box, origin
 
 def find_tail_position(robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData):
-    "Finds the tail position."
-    # robot_view = RobotView(prim_paths_expr="/World/Origin/Robot")
-    
-    # jacobians = robot_view.get_jacobians()
+    """Returns a vector representing tail orientation in world frame as well as a vector representing the instantaneous
+    rotation axis of said vector."""
+    ### Joint Configuration
+    joint_cfg = {
+        "position[radians]": articulation_view.get_joint_positions(),
+        "velocity[radians/s]": articulation_view.get_joint_velocities(),
+    }
+    # joint_positions = articulation_view.get_joint_positions()
+    # joints_state = articulation_view.get_joints_state()
+    # joint_velocities = articulation_view.get_joint_velocities()
 
-    # Current joint configuration
-    joint_positions = articulation_view.get_joint_positions()
-    joints_state = articulation_view.get_joints_state()
-    joint_velocities = articulation_view.get_joint_velocities()
-
-    # # Tail joint index
+    ### Generalized Tail Velocity in world frame
     joint_name = "box_to_rod"
     tail_joint_index = articulation_view.get_joint_index(joint_name=joint_name)
-    # jacobian = articulation_view.get_jacobians(indices=[tail_joint_index]) # This line throws error after executing for the first time
-    jacobians = articulation_view.get_jacobians()
-    jacobian = jacobians[0][tail_joint_index][:][:]
-    
-    # Tail velocity
-    gen_tail_velocity = torch_utils.matmul(matrix_a=jacobian, matrix_b=joint_velocities)
+    # Jacobian: maps generalized coordinates to world-frame velocities
+    jacobian = articulation_view.get_jacobians()[0][tail_joint_index][:][:]
+    gen_tail_velocity = torch.matmul(jacobian, joint_cfg["velocity[radians/s]"])
+    gen_tail_velocity = torch.round(input=gen_tail_velocity, decimals=6) # So that in-plane motion is precisely in-plane
 
-    # Tail pose
-    # local_poses = articulation_view.get_local_poses()
-    # Position of tail joint relative to box-origin. Expressed in joint-frame.
-    box_tail_joint_pos = artdata.body_pos_w[0][2]
+    ### Rotation Axis
+    w_vec = gen_tail_velocity[3:]
+    axis_of_rotation = w_vec/torch.norm(input=w_vec, p=2)
+    rotation_magnitude = torch.norm(input=w_vec, p=2)
 
-    # Offset end-effector
-    offset_endeffector = artdata.body_pos_w[0][3]
+    ### Vector representing tail orientation in world frame
+    body_pos_w = torch.round(input=artdata.body_pos_w[0], decimals=6) # Environment 0, rounding off to 6 decimal places
+    def get_body_position_vector(body_name: str):
+        body_index = articulation_view.get_body_index(body_name=body_name)
+        return body_pos_w[body_index]
     
-    # Vector from tail to end-effector
-    tail_to_endeffector = offset_endeffector - box_tail_joint_pos
+    # Position vectors in world coordinates
+    rod_joint_pos_vec = get_body_position_vector("rod")
+    endeffector_pos_vec = get_body_position_vector("endeffector")
+    tail_orientation_in_world_coordinates = endeffector_pos_vec - rod_joint_pos_vec
+
+
+
+    # # Tail joint index
+    # joint_name = "box_to_rod"
+    # tail_joint_index = articulation_view.get_joint_index(joint_name=joint_name)
+    # # jacobian = articulation_view.get_jacobians(indices=[tail_joint_index]) # This line throws error after executing for the first time
+    # jacobians = articulation_view.get_jacobians()
+    # jacobian = jacobians[0][tail_joint_index][:][:]
+    
+    # # General Tail velocity = [x, y, z, w_x, w_y, w_z]
+    # gen_tail_velocity = torch_utils.matmul(matrix_a=jacobian, matrix_b=joint_velocities)
+    # # Even when moving precisely in plane, small values suggesting out-of-plane motion exist
+    # gen_tail_velocity = torch.round(input=gen_tail_velocity, decimals=6)
+
+    # # Tail pose
+    # # local_poses = articulation_view.get_local_poses()
+    # # Position of tail joint relative to box-origin. Expressed in joint-frame.
+    # box_tail_joint_pos = artdata.body_pos_w[0][2]
+
+    # # Offset end-effector
+    # offset_endeffector = artdata.body_pos_w[0][3]
+    
+    # # Vector from tail to end-effector
+    # tail_to_endeffector = offset_endeffector - box_tail_joint_pos
+
+    # # Axis of rotation: w = w/||w||
+    # ang_vel = artdata.body_ang_vel_w[0][2]
+    # ang_vel = torch.round(input=ang_vel, decimals=6) # When moving in plane, slight out-of-plane components exist
+    # axis_of_rotation = ang_vel/torch.norm(ang_vel) # This is axis of rotation
+    # rotation_magnitude = torch.norm(ang_vel, p=2) # L2 norm of the axis of rotation
 
     pass
+
+    return {"tail_orientation": tail_orientation_in_world_coordinates, "rotation_axis": axis_of_rotation, "rotation_magnitude": rotation_magnitude}
 
 def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: torch.Tensor):
     "Runs the simulation."
