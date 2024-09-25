@@ -241,7 +241,7 @@ def apply_forces_old(time_seconds: float, robot: Articulation, articulation_view
 
 def apply_forces(time_seconds: float, robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData, tail_motion: dict, apply: bool = True):
     ### Parameters ####
-    WIND = torch.tensor([[-30.0], [0.0], [0.0]], device='cuda:0').reshape(3,) # m/s
+    WIND = torch.tensor([[-0.0], [0.0], [0.0]], device='cuda:0').reshape(3,) # m/s
     density_air = 1.293 # kg/m^3
     C_d = 1.1 # [has no unit]
     DIAMETER = 0.1 # m, TODO
@@ -250,6 +250,8 @@ def apply_forces(time_seconds: float, robot: Articulation, articulation_view: Ar
     vec_joint_endeffector = tail_motion["tail_orientation"].reshape(3,)
     dir_joint_endeffector = (vec_joint_endeffector/torch.norm(input=vec_joint_endeffector, p=2)).reshape(3,)
     vec_omega = (tail_motion["rotation_axis"] * tail_motion["rotation_magnitude"]).reshape(3,)
+    array_of_A = np.zeros((1, DISCRETIZATION))
+    array_of_Td = np.zeros((DISCRETIZATION, 3))
 
     ### Functions ###
     def vec_x_at_s(s: float):
@@ -269,11 +271,16 @@ def apply_forces(time_seconds: float, robot: Articulation, articulation_view: Ar
     def F_drag_at_s(s: float):
         "Returns the drag force at position s. Returned is a vector."
         v = WIND + v_tail_at_s(s)
-        v_dir = v/torch.norm(input=v, p=2)
+        if torch.norm(input=v, p=2) != 0.0:
+            v_dir = v/torch.norm(input=v, p=2)
+        else:
+            v_dir = v.clone()
         v_squared = torch.norm(input=v, p=2)**2
         # Surface Area A is projected and taken proportional quantity according to DISCRETIZATION
-        A = DIAMETER * L_projected_at_s(plane_perpendicular_to=v_dir) * DISCRETIZATION
+        A = DIAMETER * L_projected_at_s(plane_perpendicular_to=v_dir) / DISCRETIZATION
+        array_of_A[0, int(s/(LENGTH/DISCRETIZATION))-1] = A
         F_drag_at_s = 0.5 * density_air * C_d * A * v_squared * v_dir
+        raise ValueError("v is simply too high???")
         return F_drag_at_s
     
     def T_total():
@@ -281,7 +288,10 @@ def apply_forces(time_seconds: float, robot: Articulation, articulation_view: Ar
         T_total = torch.zeros(3).to('cuda')
         for s in torch.linspace(0.0, vec_joint_endeffector.norm(p=2), steps=DISCRETIZATION):
             assert 0.0 <= s <= vec_joint_endeffector.norm(p=2)
-            T_total += torch.cross(vec_x_at_s(s), F_drag_at_s(s))
+            T_d = torch.cross(vec_x_at_s(s), F_drag_at_s(s))
+            array_of_Td[int(s/(LENGTH/DISCRETIZATION))-1, :] = T_d.cpu()
+            T_total += T_d
+            # T_total += torch.cross(vec_x_at_s(s), F_drag_at_s(s))
         return T_total
     
     def F_substitution():
@@ -305,7 +315,8 @@ def apply_forces(time_seconds: float, robot: Articulation, articulation_view: Ar
         # robot.set_external_force_and_torque(forces=F_sub, torques=torch.zeros_like(F_sub), body_ids=[2], env_ids=[0])
         # robot.write_data_to_sim()
     else:
-        print(f"Force not applied {F_sub[0,0,:]}")
+        # print(f"Force not applied {F_sub[0,0,:]}")
+        pass
     
     DATA_RECORDER.record(time_seconds=time_seconds, values={
         "e_F_x": F_sub_unit_vector[0],
@@ -314,8 +325,12 @@ def apply_forces(time_seconds: float, robot: Articulation, articulation_view: Ar
         "F_sub_x": F_sub[0,0,0],
         "F_sub_y": F_sub[0,0,1],
         "F_sub_z": F_sub[0,0,2],
+        "F_total": F_sub[0,0,:].norm(p=2),
         "F_applied?": apply,
-        # "A_tilde": A_tilde,
+        "A_tilde": array_of_A.sum(),
+        "Wind_x": WIND[0],
+        "Wind_y": WIND[1],
+        "Wind_z": WIND[2],
     })
 
 def record_robot_forces(time_seconds: float, robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData):
@@ -381,29 +396,29 @@ def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: t
         shape = robot.actuators["motor"].applied_effort
 
         # Effort on tail
-        articulation_view.switch_control_mode(mode='effort')
-        robot.write_joint_damping_to_sim(torch.full_like(shape, 0.0))
-        effort = 25.0
-        robot.set_joint_effort_target(torch.full_like(shape, effort))
+        # articulation_view.switch_control_mode(mode='effort')
+        # robot.write_joint_damping_to_sim(torch.full_like(shape, 0.0))
+        # effort = 500.0
+        # robot.set_joint_effort_target(torch.full_like(shape, effort))
 
-        # ang_vel = ang_vel_profile.get_ang_vel(count=count)
-        # if ang_vel is not None:
-        #     ### Following Ang-Vel profile ###
-        #     # For velocity control; stiffness must be 0.0, damping must be non-zero
-        #     # (source: omni.isaac.core Articulations Documentation)
-        #     articulation_view.switch_control_mode(mode="velocity")
-        #     robot.write_joint_damping_to_sim(torch.full_like(robot.actuators["motor"].damping, 10.0))
-        #     # Set joint velocity setpoint
-        #     joint_vel_setpoint = torch.full_like(robot.actuators["motor"].applied_effort, ang_vel)
-        #     robot.set_joint_velocity_target(joint_vel_setpoint)
-        # else:
-        #     ### Free swing of the tail ###
-        #     # For effort control; stiffness and damping must be 0.0
-        #     robot.set_joint_velocity_target(torch.zeros_like(robot.actuators["motor"].applied_effort))
-        #     articulation_view.switch_control_mode(mode="effort")
-        #     robot.write_joint_damping_to_sim(torch.zeros_like(robot.actuators["motor"].damping))
-        #     # Set zero effort (should let tail swing freely???)
-        #     robot.set_joint_effort_target(torch.zeros_like(robot.actuators["motor"].applied_effort))
+        ang_vel = ang_vel_profile.get_ang_vel(count=count)
+        if ang_vel is not None:
+            ### Following Ang-Vel profile ###
+            # For velocity control; stiffness must be 0.0, damping must be non-zero
+            # (source: omni.isaac.core Articulations Documentation)
+            articulation_view.switch_control_mode(mode="velocity")
+            robot.write_joint_damping_to_sim(torch.full_like(robot.actuators["motor"].damping, 10.0))
+            # Set joint velocity setpoint
+            joint_vel_setpoint = torch.full_like(robot.actuators["motor"].applied_effort, ang_vel)
+            robot.set_joint_velocity_target(joint_vel_setpoint)
+        else:
+            ### Free swing of the tail ###
+            # For effort control; stiffness and damping must be 0.0
+            robot.set_joint_velocity_target(torch.zeros_like(robot.actuators["motor"].applied_effort))
+            articulation_view.switch_control_mode(mode="effort")
+            robot.write_joint_damping_to_sim(torch.zeros_like(robot.actuators["motor"].damping))
+            # Set zero effort (should let tail swing freely???)
+            robot.set_joint_effort_target(torch.zeros_like(robot.actuators["motor"].applied_effort))
 
     
         robot.write_data_to_sim()
@@ -419,7 +434,7 @@ def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: t
         # Get tail motion
         tail_motion = get_tail_orientation(sim_dt*count, robot, articulation_view, artdata)
         # Apply wind and drag force
-        apply_forces(sim_dt*count, robot, articulation_view, artdata, tail_motion, apply=True)
+        apply_forces(sim_dt*count, robot, articulation_view, artdata, tail_motion, apply=False)
 
         record_robot_forces(sim_dt*count, robot, articulation_view, artdata)
 
@@ -454,8 +469,9 @@ if __name__ == "__main__":
             "Forces on Body": ["fx", "fy", "fz"],
             "Tail Orientation [rad]": ["tail_orientation_radians"],
             "Tail Velocity": ["tail_velocity"],
-            "Substitution Force on Tail": ["F_sub_x", "F_sub_y", "F_sub_z"],
-            "F_sub applied?": ["F_applied?"],
+            "Substitution Force on Tail": ["F_sub_x", "F_sub_y", "F_sub_z", "F_total"],
+            "Wind constant [m/s]": ["Wind_x", "Wind_y", "Wind_z"],
+            "Check(s)": ["F_applied?", "A_tilde"],
         },
         save_path="source/temp/tail_position.png"
     )
