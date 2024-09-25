@@ -102,7 +102,7 @@ def run_simulation():
     sim_context = SimulationContext()
 
     # Load the stage
-    stage = Usd.Stage.Open("source/temp/temp_cones.usda")
+    stage = Usd.Stage.Open("source/temp/scene_creation_using_GUI_v1.usd")
 
     for prim in stage.Traverse():
         prim
@@ -121,20 +121,20 @@ def main():
     # Initialize simulation
 
     # Stage
-    stage = Usd.Stage.CreateNew("source/temp/temp_cones.usda")
+    # stage = Usd.Stage.CreateNew("source/temp/temp_cones.usda")
 
-    # Spawn ground plane and light
-    setup_ground_and_light(stage)
+    # # Spawn ground plane and light
+    # setup_ground_and_light(stage)
 
-    # Spawn cones
-    origins = [[0, 0, 1], [2, 0, 1], [4, 0, 1], [0, 2, 1], [2, 2, 1], [4, 2, 1]]
-    spawn_cones_at_origins(stage, origins)
+    # # Spawn cones
+    # origins = [[0, 0, 1], [2, 0, 1], [4, 0, 1], [0, 2, 1], [2, 2, 1], [4, 2, 1]]
+    # spawn_cones_at_origins(stage, origins)
 
-    # Add wind force field
-    add_wind_force_field(stage)
+    # # Add wind force field
+    # add_wind_force_field(stage)
 
-    # Save the stage
-    stage.GetRootLayer().Save()
+    # # Save the stage
+    # stage.GetRootLayer().Save()
 
     # Run simulation
     run_simulation()

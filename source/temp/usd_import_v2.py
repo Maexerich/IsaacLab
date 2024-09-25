@@ -46,6 +46,17 @@ from omni.isaac.lab.assets import Articulation, ArticulationCfg, ArticulationDat
 from omni.isaac.lab.actuators import ImplicitActuatorCfg, ActuatorBaseCfg
 from omni.isaac.lab.sim import SimulationContext, SimulationCfg
 
+# from omni.isaac.lab.scene import InteractiveSceneCfg, InteractiveScene # Interactive Scene
+# from omni.isaac.lab.utils import configclass
+# from omni.isaac.lab_assets.anymal import ANYMAL_C_CFG
+
+# @configclass
+# class MySceneCfg(InteractiveSceneCfg):
+#     robot = ANYMAL_C_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+# scene = InteractiveScene(cfg=MySceneCfg(num_envs=1))
+
+
 DAMPING = 0.0
 BOX_CFG = ArticulationCfg(
     prim_path="/World/Origin/Robot",
