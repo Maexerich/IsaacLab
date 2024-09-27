@@ -109,12 +109,14 @@ cone_cfg = sim_utils.ConeCfg(
         collision_props=sim_utils.CollisionPropertiesCfg(),
         visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.0, 1.0, 0.0)),
     )
-cone_cfg.func("/World/Objects/ConeRigid", cone_cfg, translation=(-0.2, 0.0, 5.0), orientation=(0.5, 0.0, 0.5, 0.0))
+# cone_cfg.func("/World/Objects/ConeRigid", cone_cfg, translation=(-0.2, 0.0, 5.0), orientation=(0.5, 0.0, 0.5, 0.0))
 
 # Print all prims in stage
 stage_utils.print_stage_prim_paths()
 
 # PhysicsScene
+add_prims = ["/World/Origin/Robot/rod"]
+prim_utils.set_prim_attribute_value(prim_path='/PhysicsScene', attribute_name='physxForceField:ForceField1:physxForceFieldLinear)
 print(f"PhysicsScene Attributes: \n{prim_utils.get_prim_attribute_names('/PhysicsScene')}\n\n")
 prim_utils.set_prim_attribute_value(prim_path='/PhysicsScene', attribute_name='physxForceField:ForceField1:physxForceFieldLinear:constant', value=2)
 print(f"Get value from PhysicsScene: \n{prim_utils.get_prim_property(prim_path='/PhysicsScene', property_name='physxForceField:ForceField1:physxForceFieldLinear:constant')}")

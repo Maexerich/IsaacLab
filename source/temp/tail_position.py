@@ -280,7 +280,7 @@ def apply_forces(time_seconds: float, robot: Articulation, articulation_view: Ar
         A = DIAMETER * L_projected_at_s(plane_perpendicular_to=v_dir) / DISCRETIZATION
         array_of_A[0, int(s/(LENGTH/DISCRETIZATION))-1] = A
         F_drag_at_s = 0.5 * density_air * C_d * A * v_squared * v_dir
-        raise ValueError("v is simply too high???")
+        # raise ValueError("v is simply too high???") # TODO
         return F_drag_at_s
     
     def T_total():
@@ -309,7 +309,7 @@ def apply_forces(time_seconds: float, robot: Articulation, articulation_view: Ar
         # If F_sub is 0.0 for every entry, skip (otherwise external wrench is disabled [no clue what this means...])
         if torch.norm(input=F_sub, p=2) > 0.0:
             robot.set_external_force_and_torque(forces=F_sub, torques=torch.zeros_like(F_sub), body_ids=[2], env_ids=[0])
-            robot.write_data_to_sim()
+            robot.write_data_to_sim() # TODO: Hardcoded something in source function
         else:
             print(f"[WARNING: {time_seconds}] F_sub is zero: {F_sub[0,0,:]}")
         # robot.set_external_force_and_torque(forces=F_sub, torques=torch.zeros_like(F_sub), body_ids=[2], env_ids=[0])
@@ -434,7 +434,7 @@ def run_simulator(sim: sim_utils.SimulationContext, box: Articulation, origin: t
         # Get tail motion
         tail_motion = get_tail_orientation(sim_dt*count, robot, articulation_view, artdata)
         # Apply wind and drag force
-        apply_forces(sim_dt*count, robot, articulation_view, artdata, tail_motion, apply=False)
+        apply_forces(sim_dt*count, robot, articulation_view, artdata, tail_motion, apply=True)
 
         record_robot_forces(sim_dt*count, robot, articulation_view, artdata)
 
