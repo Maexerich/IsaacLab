@@ -315,6 +315,143 @@ class PhysicsSceneModifier:
         #                                       property_name='physxForceField:ForceField2:physxForceField:enabled')}""")
         pass
 
+from abc import ABC, abstractmethod
+class BaseController(ABC):
+    @abstractmethod
+    def get_control_setpoint(self, current_time_seconds: float):
+        """Abstract method to be implemented by all controller profiles."""
+        pass
+
+class TorqueProfile(BaseController):
+    def __init__(self, sim_dt: float, control_mode: str):
+        self.sim_dt = sim_dt
+        
+        # A mapping from control modes to the corresponding methods
+        control_methods = {
+            'const': self.get_const_torque,
+            'ramp': self.get_torque_ramp,
+        }
+        
+        # Dynamically set get_control_input to the selected method
+        self.get_control_input = control_methods.get(control_mode)
+        
+        # Raise an error if the provided control_mode is not valid
+        if self.get_control_input is None:
+            raise ValueError(f"Unknown control mode: {control_mode}")
+
+    def get_const_torque(self, current_time_seconds: float):
+        # Example of constant torque implementation
+        return 10.0  # Example value, you can change this
+
+    def get_torque_ramp(self, current_time_seconds: float):
+        # Example of ramping torque implementation
+        return current_time_seconds * 2.0  # Example ramp behavior, change as needed
+    
+
+class LinearVelocity(BaseController):
+    def __init__(self):
+        pass
+
+class LinearForce(BaseController):
+    def __init__(self):
+        pass
+
+class LinearPosition(BaseController):
+    def __init__(self):
+        pass
+
+from typing import Union
+class Controller():
+    def __init__(self, articulation_view: ArticulationView, articulation: Articulation,
+                 joint_controller: Union[SimpleAngAccelProfile, TorqueProfile], 
+                 linear_vel_profile: Union[LinearVelocity, LinearForce, LinearPosition] = None,):
+        self.articulation_view = articulation_view
+        self.articulation = articulation
+        self.joint_controller = joint_controller
+        self.linear_vel_profile = linear_vel_profile
+        
+        # Initialize control modes
+        self.joint_control_mode, self.track_control_mode = self._get_control_modes(joint_controller, linear_vel_profile)
+
+    def _get_control_modes(self, joint_controller, linear_vel_profile):
+        # Determine control mode for tail joint
+        if isinstance(joint_controller, SimpleAngAccelProfile):
+            self.joint_control_mode = "velocity"
+        elif isinstance(joint_controller, TorqueProfile):
+            self.joint_control_mode = "effort"
+        else:
+            raise ValueError("Invalid controller provided. If no control input is desired, return Torque-Profile with value 0.0.")
+        
+        # Determine control mode for linear drive
+        if isinstance(linear_vel_profile, LinearVelocity):
+            self.linear_drive_mode = "velocity"
+        elif isinstance(linear_vel_profile, LinearForce):
+            self.linear_drive_mode = "effort"
+        elif isinstance(linear_vel_profile, LinearPosition):
+            self.linear_drive_mode = "position"
+        else:
+            raise ValueError("Invalid controller provided. If no control input is desired, return Linear-Force with value 0.0.")
+        
+        return self.joint_control_mode, self.linear_vel_control_mode
+    
+    def update_control_input(self, current_time: float):
+        tail_joint_input = self.joint_controller.get_control_setpoint(current_time_seconds=current_time)
+        track_drive_input = self.linear_vel_profile.get_control_setpoint(current_time_seconds=current_time)
+
+        # If either is None, switch to control mode 'effort' with zero input
+        if tail_joint_input is None:
+            self.joint_control_mode = "effort"
+            tail_joint_input = 0.0
+        if track_drive_input is None:
+            self.linear_vel_control_mode = "effort"
+            track_drive_input = 0.0
+        
+        # Assign inputs according to control mode
+        zero_dictionary = {"position": 0.0,
+                           "velocity": 0.0,
+                           "effort": 0.0,
+                           "damping": 0.0,
+                           "stiffness": 0.0}
+        tail_joint_input_dict = zero_dictionary.copy()
+        tail_joint_input_dict[self.joint_control_mode] = tail_joint_input
+        
+        track_drive_input_dict = zero_dictionary.copy()
+        track_drive_input_dict[self.linear_vel_control_mode] = track_drive_input
+
+
+        # Set control modes for tail joint and track drive correctly
+        self.set_control_mode()
+
+        # Send control input in articulation
+        self.send_control_inputs(tail_joint_input_dict, track_drive_input_dict)
+    
+    def set_control_mode(self):
+        "Ensures respective actuators are set to the correct control mode. In addition, damping and stiffness are set appropriately."
+        # TODO: Joint_indices arguments passed are hard-coded!
+        # Tail Joint
+        self.articulation_view.switch_control_mode(mode=self.joint_control_mode, joint_indices=np.array([1]))
+        # Track Drive
+        self.articulation_view.switch_control_mode(mode=self.linear_vel_control_mode, joint_indices=np.array([0]))
+        
+        for joint in self.articulation.actuators.keys():
+            # Position control
+            if self.joint_control_mode == "position" or self.linear_drive_mode == "position":
+                raise NotImplementedError("Position control is not implemented yet.")
+        #### TODO ####
+        pass
+
+
+    def send_control_inputs(self, tail_joint_input_dict: dict, track_drive_input_dict: dict):
+        # TODO: This is hard-coded for one environment (first dimension of the tensor is 1, meaning '1 environemnt')
+        position = torch.tensor([[tail_joint_input_dict["position"], track_drive_input_dict["position"]]], device='cuda:0')
+        velocity = torch.tensor([[tail_joint_input_dict["velocity"], track_drive_input_dict["velocity"]]], device='cuda:0')
+        effort = torch.tensor([[tail_joint_input_dict["effort"], track_drive_input_dict["effort"]]], device='cuda:0')
+        
+        self.articulation.set_joint_position_target(position)
+        self.articulation.set_joint_velocity_target(velocity)
+        self.articulation.set_joint_effort_target(effort)
+
+
 def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size: float, articulation: Articulation):
     "Runs the simulation."
     articulation_view = ArticulationView(prim_paths_expr="/World/Robot")
