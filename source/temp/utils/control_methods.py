@@ -40,4 +40,4 @@ class SimpleAngAccelProfile:
             return None
     
     def get_control_setpoint(self, current_time_seconds: float = None, count: int = None):
-        return self.get_ang_vel(current_time, count)
+        return self.get_ang_vel(current_time_seconds, count)

@@ -316,11 +316,13 @@ class PhysicsSceneModifier:
         pass
 
 from abc import ABC, abstractmethod
+from typing import Union
 class BaseController(ABC):
     @abstractmethod
-    def get_control_setpoint(self, current_time_seconds: float):
+    def get_control_setpoint(self, current_time_seconds: float) -> Union[float, None]:
         """Abstract method to be implemented by all controller profiles."""
         pass
+
 
 class TorqueProfile(BaseController):
     def __init__(self, sim_dt: float, control_mode: str):
@@ -333,119 +335,207 @@ class TorqueProfile(BaseController):
         }
         
         # Dynamically set get_control_input to the selected method
-        self.get_control_input = control_methods.get(control_mode)
+        method = control_methods.get(control_mode)
         
         # Raise an error if the provided control_mode is not valid
-        if self.get_control_input is None:
+        if method is None:
             raise ValueError(f"Unknown control mode: {control_mode}")
+        
+        # Assign the method to the class
+        self.get_control_setpoint = method
 
-    def get_const_torque(self, current_time_seconds: float):
+    def get_const_torque(self, current_time_seconds: float) -> float:
         # Example of constant torque implementation
         return 10.0  # Example value, you can change this
 
-    def get_torque_ramp(self, current_time_seconds: float):
+    def get_torque_ramp(self, current_time_seconds: float) -> float:
         # Example of ramping torque implementation
         return current_time_seconds * 2.0  # Example ramp behavior, change as needed
-    
+
 
 class LinearVelocity(BaseController):
-    def __init__(self):
-        pass
+    def __init__(self, sim_dt: float, control_mode: str = 'const', const_vel: float = -30.0):
+        self.sim_dt = sim_dt
 
+        # Define available control methods
+        control_methods = {
+            'const': self._get_const_velocity,
+        }
+
+        # Attempt to get the control method
+        method = control_methods.get(control_mode)
+
+        # Raise error if method is not found
+        if method is None:
+            raise ValueError(f"Unknown control mode: {control_mode}")
+
+        # If a valid method is found, assign it
+        self._method = method
+
+    def get_control_setpoint(self, current_time_seconds: float) -> Union[float, None]:
+        return self._method(current_time_seconds)
+    
+    def _get_const_velocity(self, current_time_seconds: float) -> Union[float, None]:
+        return -30.0
+
+ 
 class LinearForce(BaseController):
     def __init__(self):
         pass
+
 
 class LinearPosition(BaseController):
     def __init__(self):
         pass
 
+
 from typing import Union
 class Controller():
-    def __init__(self, articulation_view: ArticulationView, articulation: Articulation,
-                 joint_controller: Union[SimpleAngAccelProfile, TorqueProfile], 
-                 linear_vel_profile: Union[LinearVelocity, LinearForce, LinearPosition] = None,):
+    def __init__(self, articulation_view: ArticulationView, articulation: Articulation, artdata: ArticulationData,
+                 rotational_drive_profile: Union[SimpleAngAccelProfile, TorqueProfile], 
+                 linear_drive_profile: Union[LinearVelocity, LinearForce, LinearPosition],):
         self.articulation_view = articulation_view
         self.articulation = articulation
-        self.joint_controller = joint_controller
-        self.linear_vel_profile = linear_vel_profile
+        self.artdata = artdata
+        self.rotational_drive_profile = rotational_drive_profile
+        self.linear_drive_profile = linear_drive_profile
+
+        self._get_joint_gains() # This initializes the dictionary 'self.gains'
         
         # Initialize control modes
-        self.joint_control_mode, self.track_control_mode = self._get_control_modes(joint_controller, linear_vel_profile)
+        self.joint_control_mode, self.track_control_mode = self._get_control_modes(rotational_drive_profile, linear_drive_profile)
 
-    def _get_control_modes(self, joint_controller, linear_vel_profile):
-        # Determine control mode for tail joint
-        if isinstance(joint_controller, SimpleAngAccelProfile):
+    def _get_joint_gains(self):
+        "This function fetches the joint gains. BE AWARE: Includes Hard-Coded values for joint indices (& joint names) and limited to 1 environment!"
+        # TODO: Hard-coded for one environment, that explains the '[0]'
+        damping = self.artdata.joint_damping[0]
+        stiffness = self.artdata.joint_stiffness[0]
+        # friction = self.artdata.joint_friction[0] # Not needed for now
+        
+        self.gains = {}
+        for actuator in self.articulation.actuators.keys():
+            if actuator == "TrackDrive":
+                index = 0 # TODO: This is hard-coded
+            elif actuator == "TailDrive":
+                index = 1 # TODO: This is hard-coded
+            else:
+                raise ValueError("Actuator not found.") # TODO: This is hard-coded
+            # index = self.articulation_view._joint_indices[actuator] # TODO: If joint names and drives have same naming scheme this can work
+            self.gains[actuator] = {"stiffness": stiffness[index].item(), "damping": damping[index].item()}
+    
+    def _get_control_modes(self, rotational_drive_profile, linear_drive_profile):
+        "Based on provided profiles, the type of control is determined."
+        # Tail Drive
+        if isinstance(rotational_drive_profile, SimpleAngAccelProfile):
             self.joint_control_mode = "velocity"
-        elif isinstance(joint_controller, TorqueProfile):
+        elif isinstance(rotational_drive_profile, TorqueProfile):
             self.joint_control_mode = "effort"
         else:
             raise ValueError("Invalid controller provided. If no control input is desired, return Torque-Profile with value 0.0.")
         
-        # Determine control mode for linear drive
-        if isinstance(linear_vel_profile, LinearVelocity):
-            self.linear_drive_mode = "velocity"
-        elif isinstance(linear_vel_profile, LinearForce):
-            self.linear_drive_mode = "effort"
-        elif isinstance(linear_vel_profile, LinearPosition):
-            self.linear_drive_mode = "position"
+        # Track Drive
+        if isinstance(linear_drive_profile, LinearVelocity):
+            self.track_control_mode = "velocity"
+        elif isinstance(linear_drive_profile, LinearForce):
+            self.track_control_mode = "effort"
+        elif isinstance(linear_drive_profile, LinearPosition):
+            self.track_control_mode = "position"
         else:
             raise ValueError("Invalid controller provided. If no control input is desired, return Linear-Force with value 0.0.")
         
-        return self.joint_control_mode, self.linear_vel_control_mode
+        return self.joint_control_mode, self.track_control_mode
     
     def update_control_input(self, current_time: float):
-        tail_joint_input = self.joint_controller.get_control_setpoint(current_time_seconds=current_time)
-        track_drive_input = self.linear_vel_profile.get_control_setpoint(current_time_seconds=current_time)
+        """
+        This function steps the control input and writes the targets into the articulation-buffer.
+        Be sure to call the function 'articulation.write_data_to_sim()' after calling this function!
+
+        If a profile returns 'None' as a control input, the control method is changed to 'effort' with zero input.
+        """
+        tail_drive_input = self.rotational_drive_profile.get_control_setpoint(current_time_seconds=current_time)
+        track_drive_input = self.linear_drive_profile.get_control_setpoint(current_time_seconds=current_time)
 
         # If either is None, switch to control mode 'effort' with zero input
-        if tail_joint_input is None:
+        if tail_drive_input is None:
             self.joint_control_mode = "effort"
-            tail_joint_input = 0.0
+            tail_drive_input = 0.0
         if track_drive_input is None:
-            self.linear_vel_control_mode = "effort"
+            self.track_control_mode = "effort"
             track_drive_input = 0.0
         
-        # Assign inputs according to control mode
+        # Use a dictionary to assign control inputs based on control mode
+        # Track and Joint have individual dictionary, containing all entries.
         zero_dictionary = {"position": 0.0,
                            "velocity": 0.0,
                            "effort": 0.0,
                            "damping": 0.0,
                            "stiffness": 0.0}
-        tail_joint_input_dict = zero_dictionary.copy()
-        tail_joint_input_dict[self.joint_control_mode] = tail_joint_input
+        tail_drive_input_dict = zero_dictionary.copy()
+        tail_drive_input_dict[self.joint_control_mode] = tail_drive_input
         
         track_drive_input_dict = zero_dictionary.copy()
-        track_drive_input_dict[self.linear_vel_control_mode] = track_drive_input
-
+        track_drive_input_dict[self.track_control_mode] = track_drive_input
 
         # Set control modes for tail joint and track drive correctly
-        self.set_control_mode()
+        self._set_control_mode()
 
         # Send control input in articulation
-        self.send_control_inputs(tail_joint_input_dict, track_drive_input_dict)
+        self._send_control_inputs(tail_drive_input_dict, track_drive_input_dict)
     
-    def set_control_mode(self):
-        "Ensures respective actuators are set to the correct control mode. In addition, damping and stiffness are set appropriately."
-        # TODO: Joint_indices arguments passed are hard-coded!
-        # Tail Joint
-        self.articulation_view.switch_control_mode(mode=self.joint_control_mode, joint_indices=np.array([1]))
-        # Track Drive
-        self.articulation_view.switch_control_mode(mode=self.linear_vel_control_mode, joint_indices=np.array([0]))
+    def _set_control_mode(self):
+        """
+        Ensures respective actuators are set to the correct control mode. 
+        In addition, damping and stiffness are set appropriately and written to the simulation.
         
-        for joint in self.articulation.actuators.keys():
-            # Position control
-            if self.joint_control_mode == "position" or self.linear_drive_mode == "position":
-                raise NotImplementedError("Position control is not implemented yet.")
-        #### TODO ####
-        pass
+        A multitude of indexing is hard-coded, which is not ideal.
+        
+        Hard-coded default values for damping are set:
+        - TailDrive: 10.0
+        - TrackDrive: 10e4
+        """
+        # TODO: 'Joint_indices' arguments are hard-coded!
+        # Tail Joint
+        self.articulation_view.switch_control_mode(mode=self.joint_control_mode, joint_indices=[1])
+        # Track Drive
+        self.articulation_view.switch_control_mode(mode=self.track_control_mode, joint_indices=[0])
+        
+        ### Adjust gains according to control mode ###
+        #   (this has to be done to ensure proper control - view documentation for more information)
+        stiffness = self.artdata.joint_stiffness
+        damping = self.artdata.joint_damping
+        # Position control requires: Stiffness: High   Damping: Low
+        if (self.track_control_mode == "position"):
+            raise NotImplementedError("Position control is not implemented yet.") # TODO: Not Implemented
+        if (self.joint_control_mode == "position"):
+            raise NotImplementedError("Position control is not implemented yet.") # TODO: Not Implemented
 
+        # Velocity control requires: Stiffness: 0.0   Damping: non-zero
+        if (self.joint_control_mode == "velocity"):
+            # TODO: Hard-coded: '[0]' comes from 0th environment, '[1]' comes from index for TailDrive
+            stiffness[0][1] = 0.0
+            damping[0][1] = max(self.gains["TailDrive"]["damping"], 10.0) # TODO: Hard-coded damping value
+        if (self.track_control_mode == "velocity"):
+            # TODO: Hard-coded: '[0]' comes from 0th environment, '[0]' comes from index for TrackDrive
+            stiffness[0][0] = 0.0
+            damping[0][0] = max(self.gains["TrackDrive"]["damping"], 10e4) # TODO: Hard-coded damping value
 
-    def send_control_inputs(self, tail_joint_input_dict: dict, track_drive_input_dict: dict):
+        # Effort control requires: Stiffness: 0.0   Damping: 0.0
+        if (self.joint_control_mode == "effort"):
+            stiffness[0][1] = 0.0
+            damping[0][1] = 0.0
+        if (self.track_control_mode == "effort"):
+            stiffness[0][0] = 0.0
+            damping[0][0] = 0.0
+        
+        # Write gains to simulation
+        self.articulation.write_joint_stiffness_to_sim(stiffness)
+        self.articulation.write_joint_damping_to_sim(damping)
+
+    def _send_control_inputs(self, tail_drive_input_dict: dict, track_drive_input_dict: dict):
         # TODO: This is hard-coded for one environment (first dimension of the tensor is 1, meaning '1 environemnt')
-        position = torch.tensor([[tail_joint_input_dict["position"], track_drive_input_dict["position"]]], device='cuda:0')
-        velocity = torch.tensor([[tail_joint_input_dict["velocity"], track_drive_input_dict["velocity"]]], device='cuda:0')
-        effort = torch.tensor([[tail_joint_input_dict["effort"], track_drive_input_dict["effort"]]], device='cuda:0')
+        position = torch.tensor([[track_drive_input_dict["position"], tail_drive_input_dict["position"]]], device='cuda:0')
+        velocity = torch.tensor([[track_drive_input_dict["velocity"], tail_drive_input_dict["velocity"]]], device='cuda:0')
+        effort = torch.tensor([[track_drive_input_dict["effort"], tail_drive_input_dict["effort"]]], device='cuda:0')
         
         self.articulation.set_joint_position_target(position)
         self.articulation.set_joint_velocity_target(velocity)
@@ -463,9 +553,20 @@ def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size
     ### ANGULAR VELOCITY CONTROL ###
     ang_vel_profile = SimpleAngAccelProfile(sim_dt=step_size,
                                             a=200,
-                                            t0=0,
+                                            t0=2,
                                             t0_t1=0.4,
                                             t1_t2=0.2,)
+    
+    ### LINEAR VELOCITY CONTROL ###
+    linear_vel_profile = LinearVelocity(sim_dt=step_size,
+                                        control_mode='const',
+                                        const_vel=-30.0)
+
+    controller = Controller(articulation_view=articulation_view,
+                            articulation=articulation,
+                            artdata=artdata,
+                            rotational_drive_profile=ang_vel_profile,
+                            linear_drive_profile=linear_vel_profile)
 
     while current_time < total_time:
         ### ANGULAR VELOCITY CONTROL ###
@@ -495,11 +596,14 @@ def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size
         
 
         ### Linear control ###
-        articulation_view.switch_control_mode(mode="velocity")
-        cart_velocity = -30 # m/s
-        tail_joint_velocity = 0.0 # rad/s
-        vel_setpoint = torch.tensor([[cart_velocity, tail_joint_velocity]], device='cuda:0')
-        articulation.set_joint_velocity_target(vel_setpoint)
+        # articulation_view.switch_control_mode(mode="velocity")
+        # cart_velocity = -30 # m/s
+        # tail_joint_velocity = 0.0 # rad/s
+        # vel_setpoint = torch.tensor([[cart_velocity, tail_joint_velocity]], device='cuda:0')
+        # articulation.set_joint_velocity_target(vel_setpoint)
+
+        ### Controller ###
+        controller.update_control_input(current_time=current_time)
 
         articulation.write_data_to_sim() 
 
@@ -538,13 +642,10 @@ def main():
                                     #   use_fabric=False,
                                       )
     sim = SimulationContext(sim_cfg)
+    sim.set_camera_view(eye=(-100, -0.1, 2.3), target=(-95, 1.5, 1.5))
 
     ff_handler = PhysicsSceneModifier()
     ff_handler.disable_all() # Disables force fields, useful when debugging control inputs
-
-    # Design the scene
-    # box, origin = design_scene()
-    # origin = torch.tensor(origin, device=sim.device) # Disable for analytical approach
 
     # Run the simulator
     sim.reset()
