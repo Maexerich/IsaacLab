@@ -285,6 +285,34 @@ def record_robot_forces(time_seconds: float, robot: Articulation, articulation_v
     DATA_RECORDER.record(time_seconds=time_seconds, values={**values, **force_torque_dict
     })
 
+from utils.data_recorder import DataRecorder_V2
+def record(data_recorder: DataRecorder_V2, time_seconds: float, articulation: Articulation, articulation_view: ArticulationView, artdata: ArticulationData):
+
+    # Record joint parameters
+    joint_parameters = {
+        "friction": artdata.joint_friction,
+        "damping": artdata.joint_damping,
+        "stiffness": artdata.joint_stiffness,
+        "position_setpoint": articulation._joint_pos_target_sim, # TODO: maybe use different method
+        "velocity_setpoint": articulation._joint_vel_target_sim,
+        "effort_setpoint": articulation._joint_effort_target_sim,
+        "effort_measured": articulation_view.get_measured_joint_efforts(),
+        "effort_applied": artdata.applied_torque
+    }
+    data_recorder.record_actuator_params(time_seconds=time_seconds, multi_dim_values=joint_parameters, actuators={"TailDrive": 1, "TrackDrive": 0})
+
+    # Record relevant body positions
+    body_names = articulation.body_names
+    values = {
+        "position": artdata.body_pos_w,
+        "velocity": artdata.body_lin_vel_w,
+        "acceleration": artdata.body_lin_acc_w,
+        "angular_velocity": artdata.body_ang_vel_w,
+        "angular_acceleration": artdata.body_ang_acc_w,
+    }
+    data_recorder.record_body_params(time_seconds, body_names, values)
+
+
 class PhysicsSceneModifier:
     """
     Provide a class for reading and modifying values in the physics scene.
@@ -550,6 +578,8 @@ def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size
 
     current_time = 0.0
     
+    data_recorder = DataRecorder_V2()
+    
     ### ANGULAR VELOCITY CONTROL ###
     ang_vel_profile = SimpleAngAccelProfile(sim_dt=step_size,
                                             a=200,
@@ -619,6 +649,7 @@ def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size
         # apply_forces(current_time, articulation, articulation_view, artdata, tail_motion, apply=False)
 
         # record_robot_forces(current_time, articulation, articulation_view, artdata)
+        record(data_recorder, current_time, articulation, articulation_view, artdata)
 
 
 

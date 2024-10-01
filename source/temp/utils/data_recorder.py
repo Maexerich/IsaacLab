@@ -5,6 +5,79 @@ import torch
 
 
 ### Store values ###
+
+
+class DataRecorder_V2:
+    """
+    This class is responsible to store all types of data during runtime.
+    At the end of the simulation, the data is transformed into a pandas DataFrame and saved
+    as a .csv file.
+
+    The recorded data should provide (close to) all information needed, to reconstruct the experiment/simulation.
+    """
+    def __init__(self):
+        self.data = {}
+        self.df: pd.DataFrame = None
+
+    def record(self, time_seconds: float, values: dict = None, functions: dict = None):
+        """Stores values in the data attribute."""
+        assert (values is not None) or (functions is not None), "Provide either values or functions to record."
+        # _evaluate_functions(functions)
+        if time_seconds in self.data:
+            current_entry = self.data[time_seconds]
+            values = {**current_entry, **values}
+        self.data[time_seconds] = values
+    
+    def record_actuator_params(self, time_seconds: float, multi_dim_values: dict, actuators: dict, environments: list = [0]):
+        """
+        This function specializes in recording actuator parameters, such as position/velocity/effort setpoints,
+        friction, damping, stiffness, etc.
+
+        Args:
+        - actuators: dict of actuator names and their corresponding index.
+        - multi_dim_values: dict of values, which still need to be indexed to get singular values
+        
+        Example:
+        - actuators = {"TailDrive": 1, "TrackDrive": 0}
+        - multi_dim_values = {'friction': artdata.joint_friction}
+        """        
+        values_to_record = {}
+
+        for actuator_name, actuator_index in actuators.items():
+            for multi_dim_name, multi_dim_value in multi_dim_values.items():
+                key = f"{actuator_name}_{multi_dim_name}"
+                value = multi_dim_value[0][actuator_index]
+                # value can either be a scalar for 'friction', or potentially multi-dimensional for x,y,z respectivel
+                try:
+                    value = value.item()
+                except:
+                    NotImplementedError(f"Value for {key} is not a scalar.")
+                
+                values_to_record[key] = value
+        self.record(time_seconds, values=values_to_record)
+    
+    def record_body_params(self, time_seconds: float, body_names: list, xyz_measurements: dict, environments: list = [0]):
+        """
+        This function specializes in recording values for which there is a x,y,z component.
+
+        Args:
+        - xyz_values: dict where the key is a descriptive name and the value contains x,y,z components
+        """
+        values_to_record = {}
+        xyz_list = ["x", "y", "z"]
+
+        for environment_index in environments:
+            for body_index, body_name in enumerate(body_names):
+                for measurement_name, measurement_value in xyz_measurements.items():
+                    for index, coordinate_axis in enumerate(xyz_list):
+                        key = f"{body_name}_{measurement_name}_{coordinate_axis}"
+                        value = measurement_value[environment_index][body_index][index].item()
+                        values_to_record[key] = value
+
+        self.record(time_seconds, values=values_to_record)
+                
+
+
 class DataRecorder:
     """This class handles the temporary and local storage of values from the simulation.
     Values are stored as dictionaries at runtime, transformed into a pd.DataFrame at the end
