@@ -50,7 +50,7 @@ from utils.data_recorder import DataRecorder
 ### Data recorder ###
 DATA_RECORDER = DataRecorder(record=True)
 
-def open_stage(stage_path: str = "source/temp/stage_robot_v2_WIND_wPoCBox.usd"):
+def open_stage(stage_path: str = "source/temp/stage_FloatingBase_and_FixedBase_v1.usd"):
     stage_utils.open_stage(usd_path=stage_path)
     stage = stage_utils.get_current_stage()
     return stage
@@ -59,7 +59,7 @@ def instantiate_Articulation() -> Articulation:
     print(f"[TODO]: This function is hard-coded, be sure to fix!")
     DAMPING = 0.0
     BOX_CFG = ArticulationCfg(
-        prim_path="/World/Robot/Body/Root", # 'Must' point to articulation root (seemingly can be a prim higher in hierarchy too...)
+        prim_path="/World/Robot_fixedBase", # 'Must' point to articulation root (seemingly can be a prim higher in hierarchy too...)
         spawn=None,
         init_state=ArticulationCfg.InitialStateCfg(
             # pos=(0, 0, 2.5),
@@ -232,7 +232,7 @@ def apply_forces_old(time_seconds: float, robot: Articulation, articulation_view
 def apply_forces(time_seconds: float, robot: Articulation, articulation_view: ArticulationView, artdata: ArticulationData, tail_motion: dict, apply: bool = True):
     ### Parameters ####
     WIND = torch.tensor([[0.0], [0.0], [0.0]], device='cuda:0').reshape(3,) # m/s
-    density_air = 1.293 # kg/m^3
+    density_air = 1.225 # kg/m^3
     C_d = 1.1 # [has no unit]
     DIAMETER = 0.1 # m, TODO
     LENGTH = tail_motion["tail_orientation"].norm(p=2) # m,
@@ -248,16 +248,12 @@ def apply_forces(time_seconds: float, robot: Articulation, articulation_view: Ar
     def vec_x_at_s(s: float):
         "Returns vector x(s) evaluated at a position along the tail."
         assert 0.0 <= s <= vec_joint_endeffector.norm(p=2)
-        # return (s * dir_joint_endeffector).to(DEVICE)
         return s * dir_joint_endeffector
     
-    def v_tail_at_s(s: float):
-        "Returns the velocity of the tail at position s."
-        # vec_x_at_s_eval = vec_x_at_s(s)
-        # if vec_omega.device != vec_x_at_s_eval.device:
-        #     vec_x_at_s_eval = vec_x_at_s_eval.to(vec_omega.device)
-        # return torch.cross(vec_omega, vec_x_at_s(s)).to(DEVICE)
-        return torch.cross(vec_omega, vec_x_at_s(s))
+    def v_wind_perceived_at_s(s: float):
+        """Returns the velocity of the wind perceived along the tail at position s.
+        (opposes velocity of the tail)"""
+        return -torch.cross(vec_omega, vec_x_at_s(s))
     
     def L_projected_at_s(plane_perpendicular_to):
         "Returns projected tail-length onto plane perpendicular to argument 'plane_perpendicular_to'."
@@ -268,8 +264,7 @@ def apply_forces(time_seconds: float, robot: Articulation, articulation_view: Ar
     
     def F_drag_at_s(s: float):
         "Returns the drag force at position s. Returned is a vector."
-        # v = WIND.to(DEVICE) + v_tail_at_s(s).to(DEVICE)
-        v = WIND + v_tail_at_s(s)
+        v = WIND + v_wind_perceived_at_s(s)
         if torch.norm(input=v, p=2) != 0.0:
             v_dir = v/torch.norm(input=v, p=2)
         else:
@@ -388,7 +383,7 @@ class PhysicsSceneModifier:
 
 def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size: float, articulation: Articulation):
     "Runs the simulation."
-    articulation_view = ArticulationView(prim_paths_expr="/World/Robot/Body")
+    articulation_view = ArticulationView(prim_paths_expr="/World/Robot_fixedBase")
     articulation_view.initialize()
     artdata: ArticulationData = articulation.data
 
