@@ -297,7 +297,9 @@ def record(data_recorder: DataRecorder_V2, time_seconds: float, articulation: Ar
         "velocity_setpoint": articulation._joint_vel_target_sim,
         "effort_setpoint": articulation._joint_effort_target_sim,
         "effort_measured": articulation_view.get_measured_joint_efforts(),
-        "effort_applied": artdata.applied_torque
+        "effort_applied": artdata.applied_torque,
+        "position": articulation_view.get_joint_positions(),
+        "velocity": articulation_view.get_joint_velocities(),
     }
     data_recorder.record_actuator_params(time_seconds=time_seconds, multi_dim_values=joint_parameters, actuators={"TailDrive": 1, "TrackDrive": 0})
 
@@ -311,6 +313,14 @@ def record(data_recorder: DataRecorder_V2, time_seconds: float, articulation: Ar
         "angular_acceleration": artdata.body_ang_acc_w,
     }
     data_recorder.record_body_params(time_seconds, body_names, values)
+
+    # Incoming forces and torques
+    joint_names = articulation_view._metadata.joint_names
+    forces_and_torques = {
+        "force": articulation_view.get_measured_joint_forces()[:, 1:, :3],
+        "torque": articulation_view.get_measured_joint_forces()[:, 1:, 3:],
+    }
+    data_recorder.record_body_params(time_seconds, joint_names, forces_and_torques)
 
 
 class PhysicsSceneModifier:
@@ -583,7 +593,7 @@ def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size
     ### ANGULAR VELOCITY CONTROL ###
     ang_vel_profile = SimpleAngAccelProfile(sim_dt=step_size,
                                             a=200,
-                                            t0=2,
+                                            t0=0,
                                             t0_t1=0.4,
                                             t1_t2=0.2,)
     
@@ -651,6 +661,8 @@ def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size
         # record_robot_forces(current_time, articulation, articulation_view, artdata)
         record(data_recorder, current_time, articulation, articulation_view, artdata)
 
+    data_recorder.save("source/temp/track_drive_v1.csv")
+
 
 
 # Main
@@ -665,8 +677,8 @@ def main():
     
     ### Simulation ###
     # Parameters
-    total_time = 10.0 # seconds
-    step_size = 1.0 / 60.0 # seconds
+    total_time = 3.0 # seconds
+    step_size = 1.0 / 180.0 # seconds
     sim_cfg = sim_utils.SimulationCfg(physics_prim_path="/physicsScene", 
                                     #   device='cpu',
                                       dt=step_size,

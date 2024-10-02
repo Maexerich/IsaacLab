@@ -3,10 +3,7 @@ import matplotlib.pyplot as plt
 from typing import Union, Dict
 import torch
 
-
 ### Store values ###
-
-
 class DataRecorder_V2:
     """
     This class is responsible to store all types of data during runtime.
@@ -75,6 +72,13 @@ class DataRecorder_V2:
                         values_to_record[key] = value
 
         self.record(time_seconds, values=values_to_record)
+    
+    def save(self, path: str, save_as_pkl: bool = False):
+        self.df = pd.DataFrame.from_dict(self.data, orient="index")
+        self.df.to_csv(path, index_label="time_seconds")
+
+        if save_as_pkl:
+            self.df.to_pickle(path.replace(".csv", ".pkl"))
                 
 
 
