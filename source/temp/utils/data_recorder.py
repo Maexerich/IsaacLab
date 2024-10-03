@@ -14,7 +14,7 @@ class DataRecorder_V2:
     """
     def __init__(self):
         self.data = {}
-        self.df: pd.DataFrame = None
+        self.df: pd.DataFrame
 
     def record(self, time_seconds: float, values: dict = None, functions: dict = None):
         """Stores values in the data attribute."""

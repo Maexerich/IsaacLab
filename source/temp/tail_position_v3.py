@@ -381,15 +381,15 @@ def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size
     ang_vel_profile = SimpleAngAccelProfile(sim_dt=step_size,
                                             a=200,
                                             t0=0,
-                                            t0_t1=0.4,
-                                            t1_t2=0.2,)
+                                            t0_t1=0.2,
+                                            t1_t2=0.1,)
 
     while current_time < total_time:
         ang_vel = ang_vel_profile.get_ang_vel(count=int(current_time/step_size)) # TODO: Type hinting
         if ang_vel is not None:
             # Ensure damping is set to value =!= 0.0
             articulation_view.switch_control_mode(mode="velocity")
-            articulation.write_joint_damping_to_sim(torch.full_like(articulation.actuators["TailDrive"].damping, 10.0))
+            articulation.write_joint_damping_to_sim(torch.full_like(articulation.actuators["TailDrive"].damping, 10e4))
             # Set target velocity
             joint_vel_setpoint = torch.full_like(articulation.actuators["TailDrive"].applied_effort, ang_vel)
             articulation.set_joint_velocity_target(joint_vel_setpoint)
@@ -420,7 +420,7 @@ def run_simulator(sim: sim_utils.SimulationContext, total_time: float, step_size
         # Get tail motion
         tail_motion = get_tail_orientation(current_time, articulation, articulation_view, artdata)
         # Apply wind and drag force
-        apply_forces(current_time, articulation, articulation_view, artdata, tail_motion, apply=False)
+        apply_forces(current_time, articulation, articulation_view, artdata, tail_motion, apply=True)
 
         record_robot_forces(current_time, articulation, articulation_view, artdata)
 
@@ -438,8 +438,8 @@ def main():
     
     ### Simulation ###
     # Parameters
-    total_time = 2.0 # seconds
-    step_size = 1.0 / 240.0 # seconds
+    total_time = 0.5 # seconds
+    step_size = 1.0 / 580.0 # seconds
     sim_cfg = sim_utils.SimulationCfg(physics_prim_path="/physicsScene", 
                                     #   device='cpu',
                                       dt=step_size,
