@@ -105,7 +105,7 @@ def get_tail_orientation(time_seconds: float, robot: Articulation, articulation_
     }
 
     ### Generalized Tail Velocity in world frame
-    joint_name = "TailJoint" # TODO: Rename variable to tail_joint_name
+    joint_name = "TailDrive" # TODO: Rename variable to tail_joint_name
     tail_joint_index = articulation_view.get_joint_index(joint_name=joint_name)
     # Jacobian: maps generalized coordinates to world-frame velocities
     jacobian = articulation_view.get_jacobians()[0][tail_joint_index][:][:]

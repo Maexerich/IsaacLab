@@ -110,13 +110,13 @@ def instantiate_Articulation(prim_path) -> Articulation:
     """
     actuators={
         "TailDrive": ImplicitActuatorCfg(
-            joint_names_expr=["TailJoint"], # DO NOT ADD FULL PATH: /World/Robot2/.... ADD ONLY JOINT NAME!
+            joint_names_expr=["TailDrive"], # DO NOT ADD FULL PATH: /World/Robot2/.... ADD ONLY JOINT NAME!
             friction=0.02,
             damping=10e4, # A high value (10e4) will make joint follow velocity setpoint more closely
             stiffness=0.0,  # Leave at zero for velocity and effort control!
         ),
         "TrackDrive": ImplicitActuatorCfg(
-            joint_names_expr=["Track_PrismaticDrive"],
+            joint_names_expr=["TrackDrive"],
             friction=0.02,
             damping=10e4,
             stiffness=0.0, # Leave at zero for velocity and effort control!
@@ -134,7 +134,7 @@ def instantiate_Articulation(prim_path) -> Articulation:
         prim_path=prim_path, # 'Must' point to articulation root (seemingly can be a prim higher in hierarchy too...)
         spawn=None,
         init_state=ArticulationCfg.InitialStateCfg(
-            joint_pos={"TailJoint": 0.0}, # DO NOT ADD FULL PATH: /World/Robot2/.... ADD ONLY JOINT NAME!
+            joint_pos={"TailDrive": 0.0}, # DO NOT ADD FULL PATH: /World/Robot2/.... ADD ONLY JOINT NAME!
         ),
         actuators=actuators,
     )
@@ -157,7 +157,7 @@ def record(data_recorder: DataRecorder_V2, time_seconds: float, articulation: Ar
         "position": articulation_view.get_joint_positions(),
         "velocity": articulation_view.get_joint_velocities(),
     }
-    data_recorder.record_actuator_params(time_seconds=time_seconds, multi_dim_values=joint_parameters, actuators={"TailDrive": 1, "TrackDrive": 0})
+    data_recorder.record_actuator_params(time_seconds=time_seconds, multi_dim_values=joint_parameters, actuators=articulation_view._dof_indices)
 
     # Record relevant body positions
     body_names = articulation.body_names

@@ -126,6 +126,12 @@ class LinearPosition(BaseController):
     def __init__(self):
         raise NotImplementedError("LinearPosition is not implemented yet.")
 
+class DummyProfile(BaseController):
+    def __init__(self):
+        pass
+
+    def get_control_setpoint(self, current_time_seconds: float) -> Union[float, None]:
+        return None
 
 class Controller_floatingBase():
     """
@@ -134,7 +140,7 @@ class Controller_floatingBase():
 
     ATTENTION: This class contains a lot of hard-coded stuff, which will not generalize to;
     - multiple environments
-    - differently named actuators
+    - differently named actuators (actuator_names == joint_names)
     - or different usd-files
 
     Main functions:
@@ -142,18 +148,18 @@ class Controller_floatingBase():
     - update_control_input(current_time: float): Steps the control input and writes the targets into the articulation-buffer.
     """
     def __init__(self, articulation_view: ArticulationView, articulation: Articulation, artdata: ArticulationData,
-                 rotational_drive_profile: Union[SimpleAngAccelProfile, TorqueProfile], 
-                 linear_drive_profile: Union[LinearVelocity, LinearForce, LinearPosition],):
+                 rotational_drive_profile: Union[SimpleAngAccelProfile, TorqueProfile, DummyProfile], 
+                 linear_drive_profile: Union[LinearVelocity, LinearForce, LinearPosition, DummyProfile],):
         self.articulation_view = articulation_view
         self.articulation = articulation
         self.artdata = artdata
-        self.rotational_drive_profile = rotational_drive_profile
-        self.linear_drive_profile = linear_drive_profile
+        self.rotational_drive_profile = rotational_drive_profile if rotational_drive_profile is not None else DummyProfile()
+        self.linear_drive_profile = linear_drive_profile if linear_drive_profile is not None else DummyProfile()
 
         self._get_joint_gains() # This initializes the dictionary 'self.gains'
         
         # Initialize control modes
-        self.joint_control_mode, self.track_control_mode = self._get_control_modes(rotational_drive_profile, linear_drive_profile)
+        self.joint_control_mode, self.track_control_mode = self._get_control_modes()
 
     def _get_joint_gains(self):
         "This function fetches the joint gains. BE AWARE: Includes Hard-Coded values for joint indices (& joint names) and limited to 1 environment!"
@@ -163,33 +169,29 @@ class Controller_floatingBase():
         # friction = self.artdata.joint_friction[0] # Not needed for now
         
         self.gains = {}
-        for actuator in self.articulation.actuators.keys():
-            if actuator == "TrackDrive":
-                index = 0 # TODO: This is hard-coded
-            elif actuator == "TailDrive":
-                index = 1 # TODO: This is hard-coded
-            else:
-                raise ValueError("Actuator not found.") # TODO: This is hard-coded
-            # index = self.articulation_view._joint_indices[actuator] # TODO: If joint names and drives have same naming scheme this can work
+        
+        for actuator, index in self.articulation_view._dof_indices.items():
             self.gains[actuator] = {"stiffness": stiffness[index].item(), "damping": damping[index].item()}
     
-    def _get_control_modes(self, rotational_drive_profile, linear_drive_profile):
+    def _get_control_modes(self):
         "Based on provided profiles, the type of control is determined."
         # Tail Drive
-        if isinstance(rotational_drive_profile, SimpleAngAccelProfile):
+        if isinstance(self.rotational_drive_profile, SimpleAngAccelProfile):
             self.joint_control_mode = "velocity"
-        elif isinstance(rotational_drive_profile, TorqueProfile):
+        elif isinstance(self.rotational_drive_profile, TorqueProfile):
             self.joint_control_mode = "effort"
         else:
             raise ValueError("Invalid controller provided. If no control input is desired, return Torque-Profile with value 0.0.")
         
         # Track Drive
-        if isinstance(linear_drive_profile, LinearVelocity):
+        if isinstance(self.linear_drive_profile, LinearVelocity):
             self.track_control_mode = "velocity"
-        elif isinstance(linear_drive_profile, LinearForce):
+        elif isinstance(self.linear_drive_profile, Union[LinearForce, DummyProfile]):
             self.track_control_mode = "effort"
-        elif isinstance(linear_drive_profile, LinearPosition):
+        elif isinstance(self.linear_drive_profile, LinearPosition):
             self.track_control_mode = "position"
+        # elif isinstance(self.linear_drive_profile, DummyProfile):
+        #     self.track_control_mode = None
         else:
             raise ValueError("Invalid controller provided. If no control input is desired, return Linear-Force with value 0.0.")
         
@@ -229,8 +231,14 @@ class Controller_floatingBase():
         # Set control modes for tail joint and track drive correctly
         self._set_control_mode()
 
-        # Send control input in articulation
-        self._send_control_inputs(tail_drive_input_dict, track_drive_input_dict)
+        # Send control input only to those DoF's that exist
+        control_input = {}
+        for actuator, _ in self.articulation_view._dof_indices.items():
+            if actuator == "TailDrive":
+                control_input["TailDrive"] = tail_drive_input_dict
+            if actuator == "TrackDrive":
+                control_input["TrackDrive"] = track_drive_input_dict
+        self._send_control_inputs(control_input)
     
     def _set_control_mode(self):
         """
@@ -244,10 +252,16 @@ class Controller_floatingBase():
         - TrackDrive: 10e4
         """
         # TODO: 'Joint_indices' arguments are hard-coded!
-        # Tail Joint
-        self.articulation_view.switch_control_mode(mode=self.joint_control_mode, joint_indices=[1])
-        # Track Drive
-        self.articulation_view.switch_control_mode(mode=self.track_control_mode, joint_indices=[0])
+        joint_indices = self.articulation_view._dof_indices
+        for actuator, index in self.articulation_view._dof_indices.items():
+            if actuator == "TailDrive":
+                self.articulation_view.switch_control_mode(mode=self.joint_control_mode, joint_indices=[index])
+            elif actuator == "TrackDrive":
+                self.articulation_view.switch_control_mode(mode=self.track_control_mode, joint_indices=[index])
+        # # Tail Joint
+        # self.articulation_view.switch_control_mode(mode=self.joint_control_mode, joint_indices=[1])
+        # # Track Drive
+        # self.articulation_view.switch_control_mode(mode=self.track_control_mode, joint_indices=[0])
         
         ### Adjust gains according to control mode ###
         #   (this has to be done to ensure proper control - view documentation for more information)
@@ -260,32 +274,49 @@ class Controller_floatingBase():
             raise NotImplementedError("Position control is not implemented yet.") # TODO: Not Implemented
 
         # Velocity control requires: Stiffness: 0.0   Damping: non-zero
-        if (self.joint_control_mode == "velocity"):
+        if (self.joint_control_mode == "velocity") and ("TailDrive" in joint_indices):
             # TODO: Hard-coded: '[0]' comes from 0th environment, '[1]' comes from index for TailDrive
-            stiffness[0][1] = 0.0
-            damping[0][1] = max(self.gains["TailDrive"]["damping"], 10e4) # TODO: Hard-coded damping value
-        if (self.track_control_mode == "velocity"):
+            index = joint_indices['TailDrive']
+            stiffness[0][index] = 0.0
+            damping[0][index] = max(self.gains["TailDrive"]["damping"], 10e4) # TODO: Hard-coded damping value
+        if (self.track_control_mode == "velocity") and ("TrackDrive" in joint_indices):
             # TODO: Hard-coded: '[0]' comes from 0th environment, '[0]' comes from index for TrackDrive
-            stiffness[0][0] = 0.0
-            damping[0][0] = max(self.gains["TrackDrive"]["damping"], 10e4) # TODO: Hard-coded damping value
+            index = joint_indices['TrackDrive']
+            stiffness[0][index] = 0.0
+            damping[0][index] = max(self.gains["TrackDrive"]["damping"], 10e4) # TODO: Hard-coded damping value
 
         # Effort control requires: Stiffness: 0.0   Damping: 0.0
-        if (self.joint_control_mode == "effort"):
-            stiffness[0][1] = 0.0
-            damping[0][1] = 0.0
-        if (self.track_control_mode == "effort"):
-            stiffness[0][0] = 0.0
-            damping[0][0] = 0.0
+        if (self.joint_control_mode == "effort") and ("TailDrive" in joint_indices):
+            index = joint_indices['TailDrive']
+            stiffness[0][index] = 0.0
+            damping[0][index] = 0.0
+        if (self.track_control_mode == "effort") and ("TrackDrive" in joint_indices):
+            index = joint_indices['TrackDrive']
+            stiffness[0][index] = 0.0
+            damping[0][index] = 0.0
         
         # Write gains to simulation
         self.articulation.write_joint_stiffness_to_sim(stiffness)
         self.articulation.write_joint_damping_to_sim(damping)
 
-    def _send_control_inputs(self, tail_drive_input_dict: dict, track_drive_input_dict: dict):
+    def _send_control_inputs(self, control_input: dict):
         # TODO: This is hard-coded for one environment (first dimension of the tensor is 1, meaning '1 environemnt')
-        position = torch.tensor([[track_drive_input_dict["position"], tail_drive_input_dict["position"]]], device='cuda:0')
-        velocity = torch.tensor([[track_drive_input_dict["velocity"], tail_drive_input_dict["velocity"]]], device='cuda:0')
-        effort = torch.tensor([[track_drive_input_dict["effort"], tail_drive_input_dict["effort"]]], device='cuda:0')
+        # position = torch.tensor([[track_drive_input_dict["position"], tail_drive_input_dict["position"]]], device='cuda:0')
+        # velocity = torch.tensor([[track_drive_input_dict["velocity"], tail_drive_input_dict["velocity"]]], device='cuda:0')
+        # effort = torch.tensor([[track_drive_input_dict["effort"], tail_drive_input_dict["effort"]]], device='cuda:0')
+        
+        # Create a tensor of zeros of shape (0, len(joint_indices)) [first dimension '0' is for 0th environment]
+        zero_tensor = torch.zeros((1, len(control_input.keys())), device='cuda:0')
+
+        position = zero_tensor.clone()
+        velocity = zero_tensor.clone()
+        effort = zero_tensor.clone()
+
+        for actuator in control_input.keys():
+            position[0][self.articulation_view._dof_indices[actuator]] = control_input[actuator]["position"]
+            velocity[0][self.articulation_view._dof_indices[actuator]] = control_input[actuator]["velocity"]
+            effort[0][self.articulation_view._dof_indices[actuator]] = control_input[actuator]["effort"]
+
         
         self.articulation.set_joint_position_target(position)
         self.articulation.set_joint_velocity_target(velocity)
