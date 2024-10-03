@@ -248,7 +248,7 @@ class Controller_floatingBase():
         A multitude of indexing is hard-coded, which is not ideal.
         
         Hard-coded default values for damping are set:
-        - TailDrive: 10e4
+        - TailDrive: 10.0
         - TrackDrive: 10e4
         """
         # TODO: 'Joint_indices' arguments are hard-coded!
@@ -278,7 +278,7 @@ class Controller_floatingBase():
             # TODO: Hard-coded: '[0]' comes from 0th environment, '[1]' comes from index for TailDrive
             index = joint_indices['TailDrive']
             stiffness[0][index] = 0.0
-            damping[0][index] = max(self.gains["TailDrive"]["damping"], 10e4) # TODO: Hard-coded damping value
+            damping[0][index] = max(self.gains["TailDrive"]["damping"], 10.0) # TODO: Hard-coded damping value
         if (self.track_control_mode == "velocity") and ("TrackDrive" in joint_indices):
             # TODO: Hard-coded: '[0]' comes from 0th environment, '[0]' comes from index for TrackDrive
             index = joint_indices['TrackDrive']
