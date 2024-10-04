@@ -149,6 +149,7 @@ def main():
         # sim.set_camera_view(eye=(-100, -0.1, 2.3), target=(-95, 1.5, 1.5))
         sim.set_camera_view(eye=(-30, -4, 2), target=(-18, 0, 2))
         # ff_handler.disable_drag_force_field()
+        assert sim_cfg.device == 'cpu', "ForceFields will not have any effect if device is not 'cpu'."
 
         prim_path = "/World/Robot_floatingBase"
 
