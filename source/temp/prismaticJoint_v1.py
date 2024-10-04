@@ -116,7 +116,7 @@ def main():
     total_time = 0.5 # seconds
     step_size = 1.0 / 580.0 # seconds
     sim_cfg = sim_utils.SimulationCfg(physics_prim_path="/physicsScene", 
-                                    #   device='cpu',
+                                      device='cpu', ### IF disabled, ForceFields will not have any effect!
                                       dt=step_size,
                                     #   use_fabric=False,
                                       )
@@ -145,7 +145,7 @@ def main():
         data_recorder.save("source/results/AnalyticalApproach_Forces_applied.csv")
     
     ### Force Field Approach (e.g. FloatingBase) ###
-    if False:
+    if True:
         # sim.set_camera_view(eye=(-100, -0.1, 2.3), target=(-95, 1.5, 1.5))
         sim.set_camera_view(eye=(-30, -4, 2), target=(-18, 0, 2))
         # ff_handler.disable_drag_force_field()
