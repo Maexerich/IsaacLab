@@ -190,9 +190,11 @@ def get_tail_orientation(time_seconds: float, articulation: Articulation, articu
         return body_pos_w[body_index]
     
     # Position vectors in world coordinates
-    rod_joint_pos_vec = get_body_position_vector("Tail")
+    rod_CoM_pos_vec = get_body_position_vector("Tail") # Position vector of CoM of Tail, not the joint!
     endeffector_pos_vec = get_body_position_vector("Endeffector")
-    tail_orientation_in_world_coordinates = endeffector_pos_vec - rod_joint_pos_vec
+    vec_CoM_tail_to_endeffector = endeffector_pos_vec - rod_CoM_pos_vec # This vector has correct heading, but only half the length
+    # Vector currently points from CoM of the tail to the endeffector, which is only half of the tail. We want TailDrive to Endeffector.
+    tail_orientation_in_world_coordinates = vec_CoM_tail_to_endeffector * 2.0
     tail_orientation_in_world_coordinates = torch.reshape(tail_orientation_in_world_coordinates, (3,1))
 
     assert torch.isnan(tail_orientation_in_world_coordinates).any() == False
@@ -201,7 +203,7 @@ def get_tail_orientation(time_seconds: float, articulation: Articulation, articu
 
     return {"tail_orientation": tail_orientation_in_world_coordinates, "rotation_axis": axis_of_rotation, "rotation_magnitude": rotation_magnitude}
 
-def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Articulation, articulation_view: ArticulationView, artdata: ArticulationData, 
+def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Articulation, articulation_view: ArticulationView, artdata: ArticulationData,
                  tail_motion: dict, data_recorder: DataRecorder_V2, apply: bool = True):
     ### Parameters ####
     WIND = Wind_vector # m/s

@@ -106,7 +106,7 @@ def apply_analytical_drag_force(time_seconds: float, articulation: Articulation,
 # Main
 def main():
     ### Setup ###
-    stage = open_stage(stage_path = "source/temp/stage_FloatingBase_and_FixedBase_v1.usd")
+    stage = open_stage(stage_path = "source/temp/stage_FloatingBase_and_FixedBase_v2.usd")
     # stage_utils.print_stage_prim_paths() # Good for debugging
 
     # Physics Scene Modifier
@@ -142,10 +142,10 @@ def main():
 
         data_recorder = DataRecorder_V2()
         simulate_generic_setup(prim_path, sim, total_time, step_size, tail_joint_profile, None, data_recorder, apply_analytical_drag_force)
-        data_recorder.save("source/results/DEBUG_AnalyticalApproach_v1.csv")
+        data_recorder.save("source/results/AnalyticalApproach_Forces_applied.csv")
     
     ### Force Field Approach (e.g. FloatingBase) ###
-    if True:
+    if False:
         # sim.set_camera_view(eye=(-100, -0.1, 2.3), target=(-95, 1.5, 1.5))
         sim.set_camera_view(eye=(-30, -4, 2), target=(-18, 0, 2))
         # ff_handler.disable_drag_force_field()
