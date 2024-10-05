@@ -138,6 +138,7 @@ def instantiate_Articulation(prim_path) -> Articulation:
         spawn=None,
         init_state=ArticulationCfg.InitialStateCfg(
             joint_pos={"TailDrive": 0.0}, # DO NOT ADD FULL PATH: /World/Robot2/.... ADD ONLY JOINT NAME!
+            joint_vel={"TailDrive": 10.0},
         ),
         actuators=actuators,
     )
@@ -214,8 +215,8 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
     DISCRETIZATION = 200 # Number of points to discretize tail length
     vec_omega = (tail_motion["rotation_axis"] * tail_motion["rotation_magnitude"]).reshape(3,)
     DEVICE = vec_omega.device
-    vec_joint_endeffector = tail_motion["tail_orientation"].reshape(3,) #.to(DEVICE) # Deactivated here and next line, shouldn't have an affect
-    dir_joint_endeffector = (vec_joint_endeffector/torch.norm(input=vec_joint_endeffector, p=2)).reshape(3,) #.to(DEVICE)
+    vec_joint_endeffector = tail_motion["tail_orientation"].reshape(3,) # Deactivated here and next line, shouldn't have an affect
+    dir_joint_endeffector = (vec_joint_endeffector/torch.norm(input=vec_joint_endeffector, p=2)).reshape(3,)
     array_of_A = np.zeros((1, DISCRETIZATION))
     array_of_Td = np.zeros((DISCRETIZATION, 3))
 
@@ -239,6 +240,7 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
     
     def F_drag_at_s(s: float):
         "Returns the drag force at position s. Returned is a vector."
+        import torch
         v = WIND + v_wind_perceived_at_s(s)
         if torch.norm(input=v, p=2) != 0.0:
             v_dir = v/torch.norm(input=v, p=2)
@@ -254,9 +256,24 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
     def T_total():
         "Returns the total torque acting on the tail. Returned is a vector."
         T_total = torch.zeros(3).to('cuda')
+        vec_length = vec_joint_endeffector.norm(p=2)
+        s_values = torch.linspace(0.0, vec_length, steps=DISCRETIZATION)
+        step_size = vec_length / (DISCRETIZATION - 1)
+        
+        for s in s_values:
+            assert 0.0 <= s <= vec_length
+            T_d = torch.cross(vec_x_at_s(s), F_drag_at_s(s))
+            array_of_Td[int(s / step_size), :] = T_d.cpu()
+            T_total += T_d * step_size
+        
+        return T_total
+    
+    def T_total_old():
+        "Returns the total torque acting on the tail. Returned is a vector."
+        T_total = torch.zeros(3).to('cuda')
         for s in torch.linspace(0.0, vec_joint_endeffector.norm(p=2), steps=DISCRETIZATION):
             assert 0.0 <= s <= vec_joint_endeffector.norm(p=2)
-            T_d = torch.cross(vec_x_at_s(s), F_drag_at_s(s)) #.to(DEVICE)
+            T_d = torch.cross(vec_x_at_s(s), F_drag_at_s(s))
             array_of_Td[int(s/(LENGTH/DISCRETIZATION))-1, :] = T_d.cpu()
             T_total += T_d
         return T_total
@@ -267,7 +284,7 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
         norm_vec_x = torch.norm(input=vec_x_at_Lhalf, p=2)
         Torque_total = T_total()
         data_recorder.record(time_seconds=time_seconds, values={"Wind torque magnitude": Torque_total.norm(p=2).cpu()})
-        return -(torch.cross(vec_x_at_Lhalf, 2*Torque_total)/norm_vec_x**2)
+        return -2*(torch.cross(vec_x_at_Lhalf, Torque_total)/norm_vec_x**2)
     
     ### Apply forces ###
     F_sub = F_substitution()
