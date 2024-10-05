@@ -100,8 +100,8 @@ def apply_analytical_drag_force(time_seconds: float, articulation: Articulation,
     # Function that returns the tail's instantaneous: orientation, rotation axis and rotation magnitude
     tail_motion = get_tail_orientation(time_seconds, articulation, articulation_view, artdata, data_recorder)
     # Function that applies the drag force to the tail
-    Wind_vector = torch.tensor([[0.0], [30.0], [0.0]], device='cuda:0').reshape(3,) # m/s
-    apply_forces(Wind_vector, time_seconds, articulation, articulation_view, artdata, tail_motion, data_recorder, apply=True)
+    Wind_vector = torch.tensor([[-30.0], [0.0], [0.0]], device='cuda:0').reshape(3,) # m/s
+    apply_forces(Wind_vector, time_seconds, articulation, articulation_view, artdata, tail_motion, data_recorder, apply=False)
 
 # Main
 def main():
@@ -141,7 +141,7 @@ def main():
 
         data_recorder = DataRecorder_V2()
         simulate_generic_setup(prim_path, sim, total_time, step_size, tail_joint_profile, None, data_recorder, apply_analytical_drag_force)
-        data_recorder.save("source/results/AnalyticalApproach_Forces_applied.csv")
+        data_recorder.save("source/results/AnalyticalApproach_Forces_NOT_applied.csv")
     
     ### Force Field Approach (e.g. FloatingBase) ###
     if False:

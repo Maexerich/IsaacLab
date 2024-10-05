@@ -238,6 +238,10 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
         L_projected = vec_joint_endeffector - torch.dot(vec_joint_endeffector, plane_perpendicular_to) * plane_perpendicular_to
         return torch.norm(input=L_projected, p=2)
     
+    def A_delta(plane_perpendicular_to):
+        "Returns the d/ds(A) at position s. d/ds(A) = diameter * L_projected_at_s()/LENGTH"
+        return DIAMETER * L_projected_at_s(plane_perpendicular_to=plane_perpendicular_to)/LENGTH
+    
     def F_drag_at_s(s: float):
         "Returns the drag force at position s. Returned is a vector."
         import torch
@@ -248,9 +252,10 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
             v_dir = v.clone()
         v_squared = torch.norm(input=v, p=2)**2
         # Surface Area A is projected and taken proportional quantity according to DISCRETIZATION
-        A = DIAMETER * L_projected_at_s(plane_perpendicular_to=v_dir) / DISCRETIZATION
-        array_of_A[0, int(s/(LENGTH/DISCRETIZATION))-1] = A
-        F_drag_at_s = 0.5 * density_air * C_d * A * v_squared * v_dir
+        # A = DIAMETER * L_projected_at_s(plane_perpendicular_to=v_dir) / DISCRETIZATION
+        A_d = A_delta(v_dir)
+        array_of_A[0, int(s/(LENGTH/DISCRETIZATION))-1] = A_d
+        F_drag_at_s = 0.5 * density_air * C_d * A_d * v_squared * v_dir
         return F_drag_at_s
     
     def T_total():
@@ -266,16 +271,6 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
             array_of_Td[int(s / step_size), :] = T_d.cpu()
             T_total += T_d * step_size
         
-        return T_total
-    
-    def T_total_old():
-        "Returns the total torque acting on the tail. Returned is a vector."
-        T_total = torch.zeros(3).to('cuda')
-        for s in torch.linspace(0.0, vec_joint_endeffector.norm(p=2), steps=DISCRETIZATION):
-            assert 0.0 <= s <= vec_joint_endeffector.norm(p=2)
-            T_d = torch.cross(vec_x_at_s(s), F_drag_at_s(s))
-            array_of_Td[int(s/(LENGTH/DISCRETIZATION))-1, :] = T_d.cpu()
-            T_total += T_d
         return T_total
     
     def F_substitution():
