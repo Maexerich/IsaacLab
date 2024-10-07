@@ -42,12 +42,12 @@ from omni.isaac.lab.sim import SimulationContext
 from omni.isaac.lab.actuators import ImplicitActuatorCfg, ActuatorBaseCfg
 from omni.isaac.lab.sensors import FrameTransformer, FrameTransformerCfg, OffsetCfg
 # Custom Imports
-from utils.control_methods import SimpleAngAccelProfile, LinearVelocity, TorqueProfile, Controller_floatingBase
+from utils.control_methods import SimpleAngAccelProfile, LinearVelocity, TorqueProfile, Controller_floatingBase, SoftAngAccelProfile
 from utils.data_recorder import DataRecorder, DataRecorder_V2
 from utils.simulation_functions import PhysicsSceneModifier, record, instantiate_Articulation, open_stage, get_tail_orientation, apply_forces
 
 def simulate_generic_setup(prim_path: str, sim: sim_utils.SimulationContext, total_time: float, step_size: float,
-                           tail_joint_profile: Union[SimpleAngAccelProfile, TorqueProfile],
+                           tail_joint_profile: Union[SimpleAngAccelProfile, TorqueProfile, SoftAngAccelProfile],
                            track_joint_profile: Union[LinearVelocity, None],
                            data_recorder: DataRecorder_V2,
                            analytical_function = None):
@@ -100,9 +100,10 @@ def apply_analytical_drag_force(time_seconds: float, articulation: Articulation,
     # Function that returns the tail's instantaneous: orientation, rotation axis and rotation magnitude
     tail_motion = get_tail_orientation(time_seconds, articulation, articulation_view, artdata, data_recorder)
     # Function that applies the drag force to the tail
-    Wind_vector = torch.tensor([[-30.0], [0.0], [0.0]], device='cuda:0').reshape(3,) # m/s
+    Wind_vector = torch.tensor([[30.0], [0.0], [0.0]], device='cuda:0').reshape(3,) # m/s
     apply_forces(Wind_vector, time_seconds, articulation, articulation_view, artdata, tail_motion, data_recorder, apply=False)
 
+import os
 # Main
 def main():
     ### Setup ###
@@ -116,7 +117,7 @@ def main():
     total_time = 0.5 # seconds
     step_size = 1.0 / 580.0 # seconds
     sim_cfg = sim_utils.SimulationCfg(physics_prim_path="/physicsScene", 
-                                    #   device='cpu', ### IF disabled, ForceFields will not have any effect!
+                                      device='cpu', ### IF disabled, ForceFields will not have any effect!
                                       dt=step_size,
                                       )
     sim = SimulationContext(sim_cfg)
@@ -127,39 +128,76 @@ def main():
                                                 a=100,
                                                 t0=0,
                                                 t0_t1=0.2,
-                                                t1_t2=0.2)
+                                                t1_t2=0.8)
+    
+    tail_joint_profile_soft = SoftAngAccelProfile(sim_dt=step_size,
+                                                  a=100,
+                                                  k=3.5,
+                                                  t0=0,
+                                                  t0_t1=0.2,
+                                                  t1_t2=0.8,
+                                                  reach_setpoint_gain=0.4)
     # Track Joint (Prismatic)
     track_joint_profile = LinearVelocity(sim_dt=step_size,
                                          control_mode='const',
                                          const_vel=-30.0)
     
     ### Analytical Approach (e.g. FixedBase) ###
-    if True:
+    if False:
+        # Analytical approach will throw 'device errors' if cpu is enforced in the sim_cfg!
         ff_handler.disable_drag_force_field() # Disables force fields for analytical approach
         sim.set_camera_view(eye=(-2, -1.5, 2.3), target=(1.5, 1.5, 1.5))
         prim_path = "/World/Robot_fixedBase"
 
         data_recorder = DataRecorder_V2()
         simulate_generic_setup(prim_path, sim, total_time, step_size, tail_joint_profile, None, data_recorder, apply_analytical_drag_force)
-        data_recorder.save("source/results/AnalyticalApproach_Forces_NOT_applied.csv")
+        data_recorder.save("source/results/2024_10_06_An_corner_a200_disabled.csv")
     
     ### Force Field Approach (e.g. FloatingBase) ###
     if False:
         # sim.set_camera_view(eye=(-100, -0.1, 2.3), target=(-95, 1.5, 1.5))
-        sim.set_camera_view(eye=(-30, -4, 2), target=(-18, 0, 2))
-        # ff_handler.disable_drag_force_field()
+        sim.set_camera_view(eye=(-30, -1, 1.5), target=(-12, 3, 2))
+        ff_handler.disable_drag_force_field()
         assert sim_cfg.device == 'cpu', "ForceFields will not have any effect if device is not 'cpu'."
 
         prim_path = "/World/Robot_floatingBase"
 
         data_recorder = DataRecorder_V2()
         simulate_generic_setup(prim_path, sim, total_time, step_size, tail_joint_profile, track_joint_profile, data_recorder, None)
-        data_recorder.save("source/results/DEBUG.csv")
+        # data_recorder.save("source/results/2024_10_06_FF_corner_enabled.csv")
+        data_recorder.save("source/results/2024_10_06_FF_windsweep02_disabled.csv")
+    
+    if True:
+        to_simulate_dict = {
+                            "source/results/2024_10_06_FF_windsweep00": 0,
+                            "source/results/2024_10_06_FF_windsweep02": 2,
+                            "source/results/2024_10_06_FF_windsweep05": 5,
+                            "source/results/2024_10_06_FF_windsweep10": 10,
+                            "source/results/2024_10_06_FF_windsweep15": 15,
+                            "source/results/2024_10_06_FF_windsweep30": 30,}
+        
+        def run(path: str, wind_speed: float):
+            track_joint_profile = LinearVelocity(sim_dt=step_size, control_mode='const', const_vel=-wind_speed)
+            sim.set_camera_view(eye=(-30, -1, 1.5), target=(-12, 3, 2))
+            assert sim_cfg.device == 'cpu', "ForceFields will not have any effect if device is not 'cpu'."
+            prim_path = "/World/Robot_floatingBase"
+            data_recorder = DataRecorder_V2()
+            simulate_generic_setup(prim_path, sim, total_time, step_size, tail_joint_profile, track_joint_profile, data_recorder, None)
+            data_recorder.save(path)
+        
+        # for key, wind_speed in to_simulate_dict.items():
+        #     # First with drag force field enabled
+        #     path = key + "_enabled.csv"
+            run(path, wind_speed)
+        for key, wind_speed in to_simulate_dict.items():
+            # Then with drag force field disabled
+            ff_handler.disable_drag_force_field()
+            path = key + "_disabled.csv"
+            run(path, wind_speed)
+
 
 if __name__ == "__main__":
     main()
 
     # Close sim app
     simulation_app.close()
-
-    

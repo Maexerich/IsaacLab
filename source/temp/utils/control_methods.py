@@ -61,6 +61,56 @@ class SimpleAngAccelProfile:
     def get_control_setpoint(self, current_time_seconds: float = None, count: int = None):
         return self.get_ang_vel(current_time_seconds, count)
 
+class SoftAngAccelProfile(BaseController):
+    def __init__(self, sim_dt: float, a: float = 100.0, k: float = 5, t0: float = 0.0, t0_t1: float = 0.2, t1_t2: float = 0.2, reach_setpoint_gain: float = 0.8):
+        """
+        Soft angular acceleration profile w(t) defined as follows:
+        for t0 < t < t1*0.8:    w(t) = a*t
+        for t1*0.8 < t < reach_setpoint_gain*t2: w(t) smoothly transitions to a*t1.
+        for t > t2:             w(t) = <return None>
+
+        Args:
+        - sim_dt: Simulation time-discretization in seconds.
+        - a: Angular acceleration in rad/s^2.
+        - k: Gain for how fast to converge to the constant angular velocity. Higher values = faster convergence
+        - t0: Start time for acceleration in seconds.
+        - t0_t1: Time duration for acceleration in seconds (mathematically: t1-t0).
+        - t1_t2: Time for constant angular velocity in seconds (mathematically: t2-t1).
+        - reach_setpoint_gain: Fractional multiplier for t2, controlling the time by which the profile should approximately reach a*t1.
+        """
+        self.sim_dt = sim_dt
+        self.acceleration = a
+        self.k = k
+        self.t0 = t0
+        self.t1 = t0 + t0_t1
+        self.t2 = self.t1 + t1_t2
+        self.t1_08 = 0.8 * self.t1  # 0.8 * t1
+        self.t2_X = reach_setpoint_gain * self.t2  # t2 multiplied by reach_setpoint_gain
+        self._last_value = 0.0
+
+    def get_control_setpoint(self, current_time_seconds: float) -> Union[float, None]:
+        # If current time is less than t0, return None
+        if current_time_seconds < self.t0:
+            return None
+
+        # Linear acceleration phase: t0 < t < 0.8 * t1
+        elif current_time_seconds < self.t1_08:
+            self._last_value = self.acceleration * current_time_seconds
+            return self._last_value
+
+        # Smooth transition phase: 0.8 * t1 < t < reach_setpoint_gain * t2
+        # elif current_time_seconds < self.t2_X:
+        elif current_time_seconds < self.t2:
+            # Fraction to track progress between 0.8 * t1 and t2_X
+            fraction = (current_time_seconds - self.t1_08) / (self.t2_X - self.t1_08)
+            # Smooth transition using exponential decay
+            difference_to_setpoint = self.acceleration * self.t1 - self._last_value
+            return self._last_value + difference_to_setpoint * (1 - np.exp(-self.k * fraction))
+
+        # After t2: return None
+        else:
+            return None
+
 class TorqueProfile(BaseController):
     def __init__(self, sim_dt: float, control_mode: str):
         self.sim_dt = sim_dt
@@ -148,7 +198,7 @@ class Controller_floatingBase():
     - update_control_input(current_time: float): Steps the control input and writes the targets into the articulation-buffer.
     """
     def __init__(self, articulation_view: ArticulationView, articulation: Articulation, artdata: ArticulationData,
-                 rotational_drive_profile: Union[SimpleAngAccelProfile, TorqueProfile, DummyProfile], 
+                 rotational_drive_profile: Union[SimpleAngAccelProfile, TorqueProfile, DummyProfile, SoftAngAccelProfile], 
                  linear_drive_profile: Union[LinearVelocity, LinearForce, LinearPosition, DummyProfile],):
         self.articulation_view = articulation_view
         self.articulation = articulation
@@ -176,7 +226,7 @@ class Controller_floatingBase():
     def _get_control_modes(self):
         "Based on provided profiles, the type of control is determined."
         # Tail Drive
-        if isinstance(self.rotational_drive_profile, SimpleAngAccelProfile):
+        if isinstance(self.rotational_drive_profile, SimpleAngAccelProfile) or isinstance(self.rotational_drive_profile, SoftAngAccelProfile):
             self.joint_control_mode = "velocity"
         elif isinstance(self.rotational_drive_profile, TorqueProfile):
             self.joint_control_mode = "effort"
@@ -248,7 +298,7 @@ class Controller_floatingBase():
         A multitude of indexing is hard-coded, which is not ideal.
         
         Hard-coded default values for damping are set:
-        - TailDrive: 10.0
+        - TailDrive: 1.0
         - TrackDrive: 10e4
         """
         # TODO: 'Joint_indices' arguments are hard-coded!
@@ -278,7 +328,7 @@ class Controller_floatingBase():
             # TODO: Hard-coded: '[0]' comes from 0th environment, '[1]' comes from index for TailDrive
             index = joint_indices['TailDrive']
             stiffness[0][index] = 0.0
-            damping[0][index] = max(self.gains["TailDrive"]["damping"], 10.0) # TODO: Hard-coded damping value
+            damping[0][index] = max(self.gains["TailDrive"]["damping"], 1.0) # TODO: Hard-coded damping value
         if (self.track_control_mode == "velocity") and ("TrackDrive" in joint_indices):
             # TODO: Hard-coded: '[0]' comes from 0th environment, '[0]' comes from index for TrackDrive
             index = joint_indices['TrackDrive']

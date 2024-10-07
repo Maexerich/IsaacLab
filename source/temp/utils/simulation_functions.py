@@ -114,7 +114,7 @@ def instantiate_Articulation(prim_path) -> Articulation:
         "TailDrive": ImplicitActuatorCfg(
             joint_names_expr=["TailDrive"], # DO NOT ADD FULL PATH: /World/Robot2/.... ADD ONLY JOINT NAME!
             friction=0.02,
-            damping=10e3, # A high value (10e4) will make joint follow velocity setpoint more closely
+            damping=5, # A high value (10e4) will make joint follow velocity setpoint more closely
             stiffness=0.0,  # Leave at zero for velocity and effort control!
             effort_limit=30, # Nm
         ),
@@ -219,6 +219,7 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
     dir_joint_endeffector = (vec_joint_endeffector/torch.norm(input=vec_joint_endeffector, p=2)).reshape(3,)
     array_of_A = np.zeros((1, DISCRETIZATION))
     array_of_Td = np.zeros((DISCRETIZATION, 3))
+    array_of_F_d = np.zeros((DISCRETIZATION, 3))
 
     ### Functions ###
     def vec_x_at_s(s: float):
@@ -256,7 +257,9 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
         A_d = A_delta(v_dir)
         array_of_A[0, int(s/(LENGTH/DISCRETIZATION))-1] = A_d
         F_drag_at_s = 0.5 * density_air * C_d * A_d * v_squared * v_dir
-        return F_drag_at_s
+        F_drag_at_s_my_formula = 0.5 * density_air * C_d * DIAMETER * (WIND.norm(p=2) + vec_omega.norm(p=2) * s)**2 # This formula is correct!
+        array_of_F_d[int(s/(LENGTH/DISCRETIZATION))-1, :] = F_drag_at_s.cpu()
+        return F_drag_at_s # This value is checked and is correct (magnitude compared with 'F_drag_at_s_my_formula')
     
     def T_total():
         "Returns the total torque acting on the tail. Returned is a vector."
@@ -273,16 +276,78 @@ def apply_forces(Wind_vector: torch.Tensor,time_seconds: float, articulation: Ar
         
         return T_total
     
+    def F_Drag_total():
+        "Returns the total drag force acting on the tail. Returned is a vector."
+        F_total = torch.zeros(3).to('cuda')
+        s_values = torch.linspace(0.0, LENGTH, steps=DISCRETIZATION)
+        step_size = LENGTH / (DISCRETIZATION - 1)
+
+        for s in s_values:
+            assert 0.0 <= s <= LENGTH
+            F_d = F_drag_at_s(s)
+            F_total += F_d * step_size
+        
+        return F_total
+    
+    def F_Drag_total_if_no_incoming_wind():
+        "The analytical perfect solution for the drag force acting on the tail, assuming no incoming wind."
+        assert torch.norm(input=WIND, p=2) == 0.0
+        return 0.5 * density_air * C_d * DIAMETER *  vec_omega.norm(p=2)**2 * 1/3 * LENGTH**3 # Correct
+    
     def F_substitution():
         "Returns the equivalent force acting through the CoM of the tail. Returned is a vector."
         vec_x_at_Lhalf = vec_x_at_s(vec_joint_endeffector.norm(p=2)/2)
         norm_vec_x = torch.norm(input=vec_x_at_Lhalf, p=2)
         Torque_total = T_total()
         data_recorder.record(time_seconds=time_seconds, values={"Wind torque magnitude": Torque_total.norm(p=2).cpu()})
-        return -2*(torch.cross(vec_x_at_Lhalf, Torque_total)/norm_vec_x**2)
+        return -(torch.cross(vec_x_at_Lhalf, Torque_total)/norm_vec_x**2)
+    
+    def get_unit_norm_vector(vector: torch.Tensor):
+        "Returns the unit vector of the input vector."
+        if torch.norm(input=vector, p=2) == 0.0:
+            return vector
+        else:
+            return vector/torch.norm(input=vector, p=2)
+    
+    def calculate_F_sub():
+        Torque_total = T_total()
+        vec_x_at_Lhalf = vec_x_at_s(vec_joint_endeffector.norm(p=2)/2) # Vector Joint to CoM of tail
+        # Direction of perceived wind due to tail's rotation
+        # v_wind_at_Lhalf = v_wind_perceived_at_s(LENGTH/2)
+        dir_wind_tail = get_unit_norm_vector(v_wind_perceived_at_s(LENGTH/2))
+        # Direction of wind due to incoming wind
+        dir_wind_incoming = get_unit_norm_vector(WIND)
+
+        # These if-statements cover all possible combinations of having/not having a specific wind component
+        if torch.norm(input=dir_wind_tail, p=2) == 0.0 and torch.norm(input=dir_wind_incoming, p=2) == 0.0:
+            ### Case 1: Incoming wind is 0.0 AND tail is not rotating, e.g. dir_wind_tail.norm(p=2) == 0.0
+            # Here, F_sub must naturally be 0.0, as there is no rotation and no incoming wind
+            return torch.zeros((3,1)).to(DEVICE)
+        elif torch.norm(input=dir_wind_incoming, p=2) == 0.0:
+            ### Case 2: Incoming wind is 0.0, e.g. WIND.norm(p=2) == 0.0
+            # Here, F_sub must be in the same direction as dir_wind_tail, e.g. F_sub = beta * dir_wind_tail
+            matrix_A = torch.cross(vec_x_at_Lhalf, dir_wind_tail).reshape(3,1).to(DEVICE)
+            x = torch.linalg.lstsq(matrix_A, Torque_total.reshape(3,1))
+            F_sub = x.solution * dir_wind_tail
+        elif torch.norm(input=dir_wind_tail, p=2) == 0.0:
+            ### Case 3: No tail rotation (dir_wind_tail.norm(p=2) == 0.0), but incoming wind is present
+            # Here, F_sub must be in the same direction as dir_wind_incoming, e.g. F_sub = alpha * dir_wind_incoming
+            matrix_A = torch.cross(vec_x_at_Lhalf, dir_wind_incoming).reshape(3,1).to(DEVICE)
+            x = torch.linalg.lstsq(matrix_A, Torque_total.reshape(3,1))
+            F_sub = x.solution * dir_wind_incoming
+        else:
+            ### Case 4: Both magnitudes are non-zero
+            # Here we solve a linear system of equations where F_sub = alpha * dir_wind_incoming + beta * dir_wind_tail
+            matrix_A = torch.stack([torch.cross(vec_x_at_Lhalf, dir_wind_incoming), torch.cross(vec_x_at_Lhalf, dir_wind_tail)], dim=1).to(DEVICE)
+            x = torch.linalg.lstsq(matrix_A, Torque_total.reshape(3,1))
+            F_sub = x.solution[0] * dir_wind_incoming + x.solution[1] * dir_wind_tail
+
+        return F_sub
     
     ### Apply forces ###
-    F_sub = F_substitution()
+    # F_sub = F_substitution() # Incorrect because of assumption that x(s) is perpendicular to F_sub
+    # F_sub = F_Drag_total() # Correct, because it 'matches' (depends on DISCRETIZATION) the analytical solution 'F_Drag_total_if_no_incoming_wind()'
+    F_sub = calculate_F_sub()
     F_sub_unit_vector = F_sub/torch.norm(input=F_sub, p=2)
     F_sub = torch.reshape(F_sub, (1, 1, 3))
 
