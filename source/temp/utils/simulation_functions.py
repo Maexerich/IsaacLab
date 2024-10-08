@@ -114,7 +114,7 @@ def instantiate_Articulation(prim_path) -> Articulation:
         "TailDrive": ImplicitActuatorCfg(
             joint_names_expr=["TailDrive"], # DO NOT ADD FULL PATH: /World/Robot2/.... ADD ONLY JOINT NAME!
             friction=0.02,
-            damping=5, # A high value (10e4) will make joint follow velocity setpoint more closely
+            damping=10, # A high value (10e4) will make joint follow velocity setpoint more closely
             stiffness=0.0,  # Leave at zero for velocity and effort control!
             effort_limit=30, # Nm
         ),

@@ -50,7 +50,7 @@ class SimpleAngAccelProfile:
             count = int(current_time / self.sim_dt)
         current_time = count * self.sim_dt
         if current_time < self.t0:
-            return None
+            return 0.0
         elif current_time < self.t1:
             return self.acceleration * (current_time - self.t0)
         elif current_time < self.t2:
@@ -89,9 +89,9 @@ class SoftAngAccelProfile(BaseController):
         self._last_value = 0.0
 
     def get_control_setpoint(self, current_time_seconds: float) -> Union[float, None]:
-        # If current time is less than t0, return None
+        # If current time is less than t0, return 0.0
         if current_time_seconds < self.t0:
-            return None
+            return 0.0
 
         # Linear acceleration phase: t0 < t < 0.8 * t1
         elif current_time_seconds < self.t1_08:
