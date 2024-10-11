@@ -1,6 +1,7 @@
 This repository contains the code developed within context of my semester project at ETH.
 The **final report** of my project can be found in this repository.
 
+![Isaac Lab](source/Model_FloatingBase.png)
 # Purpose
 Framework for simulation of tails for ANYmal, which considers the tail's
 - inertia and
