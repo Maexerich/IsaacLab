@@ -38,9 +38,13 @@ Everything is explained in the 'main()' function in the form of comments.
 
 The python file used for all simulations is **source/simulation_script.py**.
 Part of my project are also
+- **source/utils** Directory where all my custom functions and classes are hiding
 - **source/results** Plots and csv data from simulations
 - **source/data_visualization.ipynb** Jupyter notebook used to debug, visualize and create final plots. ATTENTION: used a python 3.12 venv, with boilerplate installations (numpy, pandas, matplotlib, ipykernel)
 
+**Analytical Method:** When I worked on the project, it required a manual change of a flag in the repository ([PR](https://github.com/isaac-sim/IsaacLab/pull/1223)); in articulation.py the function 'write_data_to_sim': when calling 'self.root_physx_view.apply_forces_and_torques_at_position()' --> set the flag 'global=True'. Otherwise, the analytical method proposed here will not work, as the substitution force calculated is in global coordinates.
+
+**Attention:** A lot of parts in my classes are hard-coded. If you want to see the hard-coded parts, search for keywords like 'TODO', 'hard-coded' or similar. Do not expect my code to generalize to any situation, without checking it first!
 
 # How to make your own simulation
 For anyone wanting to do their own implementations, I suggest taking a look first at the [tutorials in the Isaac Lab documentations](https://isaac-sim.github.io/IsaacLab/source/tutorials/index.html), then potentially stepping through my code slowly. My code relies on multiple classes and functions developed by myself (with some occasional ChatGPT help). If the documentation for a respective function is missing, I'm sorry, but just give it to ChatGPT first and see if it figures it out - from the context however I believe my code should be more or less clear.
