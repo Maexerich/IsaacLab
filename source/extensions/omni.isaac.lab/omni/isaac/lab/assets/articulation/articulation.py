@@ -186,7 +186,7 @@ class Articulation(AssetBase):
                 torque_data=self._external_torque_b.view(-1, 3),
                 position_data=None,
                 indices=self._ALL_INDICES,
-                is_global=True,
+                is_global=True, # Hard-Coded fix. PR at: https://github.com/isaac-sim/IsaacLab/pull/1223
             )
 
         # apply actuator models
