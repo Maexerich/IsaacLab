@@ -43,6 +43,7 @@ from omni.isaac.lab.actuators import ImplicitActuatorCfg, ActuatorBaseCfg
 from omni.isaac.lab.sensors import FrameTransformer, FrameTransformerCfg, OffsetCfg
 # Custom Imports
 from utils.control_methods import SimpleAngAccelProfile, LinearVelocity, TorqueProfile, Controller_floatingBase, SoftAngAccelProfile
+from utils.control_methods import SimpleAngAccelProfile, LinearVelocity, TorqueProfile, Controller_floatingBase, SoftAngAccelProfile
 from utils.data_recorder import DataRecorder, DataRecorder_V2
 from utils.simulation_functions import PhysicsSceneModifier, record, instantiate_Articulation, open_stage, get_tail_orientation, apply_forces
 
@@ -101,14 +102,14 @@ def apply_analytical_drag_force(time_seconds: float, articulation: Articulation,
     tail_motion = get_tail_orientation(time_seconds, articulation, articulation_view, artdata, data_recorder)
     # Function that applies the drag force to the tail
     Wind_vector = torch.tensor([[30.0], [0.0], [0.0]], device='cuda:0').reshape(3,) # m/s
-    apply_forces(Wind_vector, time_seconds, articulation, articulation_view, artdata, tail_motion, data_recorder, apply=False)
+    apply_forces(Wind_vector, time_seconds, articulation, articulation_view, artdata, tail_motion, data_recorder, apply=True)
 
 import os
 # Main
 def main():
-    main_recording()
+    # main_recording() # This function was used to make a screen recording of a representative simulation using the extension 'Video Recorder'
     ### Setup ###
-    stage = open_stage(stage_path = "source/temp/stage_FloatingBase_and_FixedBase_v2.usd")
+    stage = open_stage(stage_path = "source/stage_FloatingBase_and_FixedBase_v2.usd")
     # stage_utils.print_stage_prim_paths() # Good for debugging
 
     # Physics Scene Modifier
@@ -143,32 +144,45 @@ def main():
                                          control_mode='const',
                                          const_vel=-30.0)
     
-    ### Analytical Approach (e.g. FixedBase) ###
+    ############################################
+    ### Analytical Approach (e.g. FixedBase) ### --> Set to True to run
+    ############################################
     if False:
-        # Analytical approach will throw 'device errors' if cpu is enforced in the sim_cfg!
+        # Analytical approach will throw 'device errors' if cpu is enforced in the sim_cfg! (line 122)
         ff_handler.disable_drag_force_field() # Disables force fields for analytical approach
         sim.set_camera_view(eye=(-2, -1.5, 2.3), target=(1.5, 1.5, 1.5))
         prim_path = "/World/Robot_fixedBase"
 
         data_recorder = DataRecorder_V2()
+        # In functino 'apply_analytical_drag_force' (line 100), the last function called has the argument 'apply'.
+        # If 'apply' = True: The substitution force calculated is applied, else it is not applied (but still calculated and logged).
         simulate_generic_setup(prim_path, sim, total_time, step_size, tail_joint_profile, None, data_recorder, apply_analytical_drag_force)
-        data_recorder.save("source/results/2024_10_07_An_disabled.csv")
+        data_recorder.save("source/results/DUMMY_An_enabled.csv")
     
-    ### Force Field Approach (e.g. FloatingBase) ###
-    if False:
-        # sim.set_camera_view(eye=(-100, -0.1, 2.3), target=(-95, 1.5, 1.5))
+    ################################################
+    ### Force Field Approach (e.g. FloatingBase) ### --> Set to True to run
+    ################################################
+    if True:
+        # Force Fields method to simulating drag force.
+        # Be sure to force 'cpu' in sim_cfg, otherwise force fields will not have any effect! (But it will still run!) (line 122)
         sim.set_camera_view(eye=(-30, -1, 1.5), target=(-12, 3, 2))
-        ff_handler.disable_drag_force_field()
+        
+        # ---> If this line runs, then force fields are DISABLED! <---
+        # ff_handler.disable_drag_force_field()
+
+        # Check to ensure cpu is enforced in sim_cfg (line 122)
         assert sim_cfg.device == 'cpu', "ForceFields will not have any effect if device is not 'cpu'."
 
         prim_path = "/World/Robot_floatingBase"
 
         data_recorder = DataRecorder_V2()
         simulate_generic_setup(prim_path, sim, total_time, step_size, tail_joint_profile, track_joint_profile, data_recorder, None)
-        # data_recorder.save("source/results/2024_10_06_FF_corner_enabled.csv")
-        data_recorder.save("source/results/2024_10_07_FF_disabled.csv")
+        data_recorder.save("source/results/DUMMY_FF_enabled.csv")
     
     if False:
+        # This block was used to create the data for the incoming wind speed dependency.
+        # The for-loops don't actually work. I had to manually uncomment the desired file to run from the 'to_simulate_dict'.
+        # This script is extremely 'hacky', avoid it if you can or be sure to understand it!
         to_simulate_dict = {
                             # "source/results/2024_10_06_FF_windsweep00": 0,
                             # "source/results/2024_10_06_FF_windsweep02": 2,
@@ -187,7 +201,8 @@ def main():
             simulate_generic_setup(prim_path, sim, total_time, step_size, tail_joint_profile, track_joint_profile, data_recorder, None)
             data_recorder.save(path)
         
-        # Use either of these for-loops and uncomment the other! One is responsible for simulating with and the other without the Drag Force Field
+        # Uncomment either of the for-loops below to run the simulation at either 'enabled' or 'disabled' drag force field.
+        # You can only do one at a time.
         for key, wind_speed in to_simulate_dict.items():
             # First with drag force field enabled
             path = key + "_enabled.csv"
@@ -199,8 +214,9 @@ def main():
         #     run(path, wind_speed)
 
 def main_recording():
+    ### Run this function to record the stage with the robot. For recording, use the Isaac Sim UI extension called Video Recorder. ###
     ### Setup ###
-    stage = open_stage(stage_path = "source/temp/stage_FloatingBase_and_FixedBase_v2.usd")
+    stage = open_stage(stage_path = "source/stage_FloatingBase_and_FixedBase_v2.usd")
     # stage_utils.print_stage_prim_paths() # Good for debugging
 
     # Physics Scene Modifier
